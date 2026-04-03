@@ -13,8 +13,6 @@ D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\RagEvaluation.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\RetrievalChunk.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\VectorDocument.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\WebSearchResult.java
-D:\Projects\p-rag\src\main\java\com\zzp\rag\mapper\KnowledgeUploadMapper.java
-D:\Projects\p-rag\src\main\java\com\zzp\rag\mapper\QaAuditMapper.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\AnswerGenerationService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\CacheService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\EmbeddingService.java

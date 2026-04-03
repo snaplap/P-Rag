@@ -1,6 +1,6 @@
 # P-Rag
 
-本项目是企业级 RAG 智能问答示例，采用 Spring Boot + MyBatis 架构，包含内嵌前端页面，可直接在浏览器上传 Markdown 并进行流式对话。
+本项目是 RAG 智能问答示例，采用 Spring Boot  架构，包含内嵌前端页面，可直接在浏览器上传 Markdown 并进行流式对话。
 
 ## 你现在可以做什么
 

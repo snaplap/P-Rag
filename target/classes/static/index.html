@@ -6,20 +6,20 @@
   <title>P-Rag Chat</title>
   <style>
     :root {
-      --bg: #f4f6f8;
+      --bg: #f5fbff;
       --panel: #ffffff;
-      --line: #dde4ea;
-      --text: #21303d;
-      --muted: #627585;
-      --primary: #3b6f8b;
-      --primary-soft: #e8f1f6;
-      --sidebar-bg: #1e2630;
-      --sidebar-text: #e7edf3;
-      --sidebar-muted: #a8b6c3;
-      --sidebar-item: #2a3440;
-      --sidebar-item-hover: #32404e;
+      --line: #dbeaf6;
+      --text: #1d3a52;
+      --muted: #5f7f97;
+      --primary: #2d8ac9;
+      --primary-soft: #eaf6ff;
+      --sidebar-bg: #e9f5ff;
+      --sidebar-text: #1f4662;
+      --sidebar-muted: #5f85a0;
+      --sidebar-item: #f6fbff;
+      --sidebar-item-hover: #e8f4ff;
       --radius: 14px;
-      --shadow: 0 10px 25px rgba(25, 42, 58, 0.1);
+      --shadow: 0 12px 28px rgba(61, 140, 196, 0.14);
     }
 
     * {
@@ -31,7 +31,7 @@
       height: 100vh;
       font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
       color: var(--text);
-      background: radial-gradient(circle at 20% -10%, #e7eef4 0, transparent 45%), var(--bg);
+      background: radial-gradient(circle at 20% -10%, #d8efff 0, transparent 45%), var(--bg);
     }
 
     .app {
@@ -39,29 +39,63 @@
       grid-template-columns: 300px 1fr;
       height: 100dvh;
       overflow: hidden;
+      transition: grid-template-columns 0.36s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     .sidebar {
-      background: linear-gradient(180deg, #1d2630 0%, #242f3a 100%);
+      background: linear-gradient(180deg, #e7f4ff 0%, #f3faff 100%);
       color: var(--sidebar-text);
-      border-right: 1px solid #33404d;
+      border-right: 1px solid #c8e1f2;
       display: flex;
       flex-direction: column;
       padding: 16px 14px;
       gap: 14px;
+      transition: padding 0.32s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     .logo {
       font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.4px;
+      overflow: hidden;
+      max-height: 36px;
+      transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
+    }
+
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .sidebar-toggle {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      border: 1px solid #90bddb;
+      background: #d7ecfa;
+      color: #1e5679;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.24s ease, transform 0.3s ease;
+    }
+
+    .sidebar-toggle:hover {
+      background: #c6e5f9;
+      transform: translateY(-1px);
     }
 
     .upload-wrap {
-      border: 1px solid #3a4b5c;
+      border: 1px solid #b4d6ee;
       border-radius: 12px;
       padding: 10px;
-      background: #27323e;
+      background: #fafdff;
+      overflow: hidden;
+      max-height: 240px;
+      transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
 
     .upload-title {
@@ -74,13 +108,13 @@
       width: 100%;
       border: 0;
       border-radius: 10px;
-      background: linear-gradient(120deg, #5c8da8 0%, #4d7a92 100%);
+      background: linear-gradient(120deg, #3aa7ee 0%, #2d8ac9 100%);
       color: #fff;
       font-weight: 700;
       padding: 10px 12px;
       cursor: pointer;
       transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-      box-shadow: 0 8px 20px rgba(77, 122, 146, 0.35);
+      box-shadow: 0 10px 22px rgba(54, 144, 203, 0.3);
     }
 
     .upload-btn:hover {
@@ -105,6 +139,9 @@
       color: var(--sidebar-muted);
       margin: 4px 0 0;
       padding: 0 2px;
+      overflow: hidden;
+      max-height: 20px;
+      transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
 
     .kb-list {
@@ -113,10 +150,12 @@
       flex-direction: column;
       gap: 8px;
       padding-right: 2px;
+      max-height: 100%;
+      transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
 
     .kb-item {
-      border: 1px solid #343434;
+      border: 1px solid #c4dff2;
       border-radius: 12px;
       background: var(--sidebar-item);
       padding: 10px 10px;
@@ -130,14 +169,14 @@
     }
 
     .kb-item.active {
-      border-color: #86a9bf;
-      background: #395265;
+      border-color: #6ab1dd;
+      background: #e0f2ff;
     }
 
     .kb-name {
       font-size: 13px;
       font-weight: 700;
-      color: #f1f5f9;
+      color: #1f4d6d;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -146,8 +185,19 @@
     .kb-meta {
       margin-top: 4px;
       font-size: 11px;
-      color: #aeb6c2;
+      color: #6d8ca4;
       line-height: 1.4;
+    }
+
+    .kb-question {
+      margin-top: 7px;
+      font-size: 12px;
+      color: #2f5c7b;
+      background: rgba(133, 193, 233, 0.2);
+      border: 1px solid rgba(128, 189, 230, 0.35);
+      border-radius: 9px;
+      padding: 7px 8px;
+      line-height: 1.45;
     }
 
     .main {
@@ -186,20 +236,30 @@
     .active-name {
       font-size: 14px;
       font-weight: 600;
-      color: #111827;
+      color: #173f5d;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 560px;
     }
 
-    .status {
+    .github-link {
       font-size: 12px;
-      color: #4b5563;
-      background: #edf4f8;
-      border: 1px solid #d7e5ee;
+      color: #164766;
+      text-decoration: none;
+      background: linear-gradient(135deg, #f7fcff 0%, #dff2ff 100%);
+      border: 1px solid #9fd0f0;
       border-radius: 999px;
-      padding: 4px 10px;
+      padding: 7px 14px;
+      font-weight: 700;
+      transition: transform 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
+      box-shadow: 0 8px 18px rgba(66, 153, 212, 0.2);
+    }
+
+    .github-link:hover {
+      background: linear-gradient(135deg, #e8f7ff 0%, #cfeeff 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 12px 22px rgba(66, 153, 212, 0.28);
     }
 
     .chat-scroll {
@@ -222,9 +282,12 @@
       border-radius: 14px;
       padding: 14px 16px;
       line-height: 1.72;
-      white-space: pre-wrap;
       animation: fadeUp 0.24s ease;
       border: 1px solid transparent;
+    }
+
+    .msg.user .msg-content {
+      white-space: pre-wrap;
     }
 
     .msg.user {
@@ -244,6 +307,55 @@
       margin-top: 8px;
       font-size: 12px;
       color: var(--muted);
+    }
+
+    .msg-content p {
+      margin: 0 0 10px;
+    }
+
+    .msg-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .msg-content h1,
+    .msg-content h2,
+    .msg-content h3 {
+      margin: 4px 0 10px;
+      line-height: 1.35;
+    }
+
+    .msg-content ul {
+      margin: 4px 0 10px 20px;
+      padding: 0;
+    }
+
+    .msg-content li {
+      margin: 4px 0;
+    }
+
+    .msg-content code {
+      background: #eef2f7;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 0.9em;
+    }
+
+    .msg-content pre {
+      margin: 8px 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 10px 12px;
+      border-radius: 10px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .msg-content pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
     }
 
     .composer-shell {
@@ -292,7 +404,7 @@
       height: 44px;
       border: 0;
       border-radius: 12px;
-      background: #29475c;
+      background: linear-gradient(135deg, #39a8ef 0%, #2d8ac9 100%);
       color: #fff;
       cursor: pointer;
       transition: transform 0.18s ease, opacity 0.2s ease;
@@ -315,8 +427,55 @@
       font-size: 12px;
       color: var(--muted);
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
+      align-items: center;
       gap: 12px;
+    }
+
+    .mindmap-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      cursor: pointer;
+      color: #244254;
+      border: 1px solid #bdd6e7;
+      background: linear-gradient(130deg, #eef7ff 0%, #e6f3ff 100%);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-weight: 700;
+      transition: transform 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
+      box-shadow: 0 6px 16px rgba(59, 111, 139, 0.14);
+      margin-left: auto;
+    }
+
+    .mindmap-toggle:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px rgba(59, 111, 139, 0.2);
+    }
+
+    .mindmap-toggle input {
+      accent-color: #3b6f8b;
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+      transform: translateY(1px);
+    }
+
+    .mindmap-toggle.active {
+      background: linear-gradient(130deg, #d9f1ff 0%, #c8e9ff 100%);
+      border-color: #7eb6de;
+      box-shadow: 0 0 0 4px rgba(70, 141, 191, 0.14), 0 10px 22px rgba(59, 111, 139, 0.22);
+      animation: pulseToggle 0.42s ease;
+    }
+
+    .mindmap-image {
+      margin-top: 8px;
+      width: min(100%, 620px);
+      border-radius: 12px;
+      border: 1px solid #d2e9f8;
+      box-shadow: 0 8px 20px rgba(82, 157, 206, 0.18);
+      display: block;
     }
 
     .warn {
@@ -338,10 +497,27 @@
       }
     }
 
+    @keyframes pulseToggle {
+      0% {
+        transform: scale(0.96);
+      }
+      65% {
+        transform: scale(1.04);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+
     @media (max-width: 920px) {
       .app {
         grid-template-columns: 1fr;
         grid-template-rows: minmax(220px, 34vh) minmax(0, 1fr);
+      }
+
+      .app.sidebar-collapsed {
+        grid-template-columns: 1fr;
+        grid-template-rows: 64px minmax(0, 1fr);
       }
 
       .sidebar {
@@ -359,12 +535,50 @@
         width: calc(100% - 20px);
       }
     }
+
+    .app.sidebar-collapsed {
+      grid-template-columns: 68px 1fr;
+    }
+
+    .app.sidebar-collapsed .logo,
+    .app.sidebar-collapsed .upload-wrap,
+    .app.sidebar-collapsed .kb-title,
+    .app.sidebar-collapsed .kb-list {
+      opacity: 0;
+      transform: translateX(-8px);
+      max-height: 0;
+      margin: 0;
+      pointer-events: none;
+    }
+
+    .app.sidebar-collapsed .logo {
+      max-width: 0;
+      width: 0;
+      margin: 0;
+    }
+
+    .app.sidebar-collapsed .sidebar {
+      align-items: center;
+      padding: 14px 8px;
+    }
+
+    .app.sidebar-collapsed .sidebar-head {
+      justify-content: center;
+      width: 100%;
+    }
+
+    .app.sidebar-collapsed .sidebar-toggle {
+      transform: rotate(180deg);
+    }
   </style>
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="logo">P-Rag Workspace</div>
+    <div class="sidebar-head">
+      <div class="logo">P-Rag Workspace</div>
+      <button id="sidebarToggle" class="sidebar-toggle" title="收起/展开">☰</button>
+    </div>
 
     <div class="upload-wrap">
       <div class="upload-title">上传 Markdown 到新知识库</div>
@@ -384,7 +598,7 @@
         <div class="dot"></div>
         <div id="activeName" class="active-name">请先上传 Markdown 文件开始对话</div>
       </div>
-      <div id="runStatus" class="status">空闲</div>
+      <a class="github-link" href="https://github.com/snaplap/P-Rag" target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
     </header>
 
     <section id="chatScroll" class="chat-scroll">
@@ -399,20 +613,26 @@
       <div class="composer-tip">
         <span>回答默认基于当前知识库内容生成</span>
         <span id="minorHint">运行细节默认隐藏</span>
+        <label class="mindmap-toggle" for="mindMapCheckbox">
+          <input id="mindMapCheckbox" type="checkbox">
+          输出思维导图
+        </label>
       </div>
     </footer>
   </main>
 </div>
 
 <script>
+  const appRoot = document.querySelector(".app");
+  const sidebarToggle = document.getElementById("sidebarToggle");
   const mdFile = document.getElementById("mdFile");
   const uploadBtn = document.getElementById("uploadBtn");
   const uploadMeta = document.getElementById("uploadMeta");
   const kbList = document.getElementById("kbList");
   const activeName = document.getElementById("activeName");
-  const runStatus = document.getElementById("runStatus");
   const FIXED_TOP_K = 5;
   const questionInput = document.getElementById("questionInput");
+  const mindMapCheckbox = document.getElementById("mindMapCheckbox");
   const sendBtn = document.getElementById("sendBtn");
   const chatWrap = document.getElementById("chatWrap");
   const chatScroll = document.getElementById("chatScroll");
@@ -428,6 +648,7 @@
   initialize();
 
   async function initialize() {
+    initSidebarState();
     bindEvents();
     await loadKnowledgeBases();
     if (!active) {
@@ -436,6 +657,9 @@
   }
 
   function bindEvents() {
+    sidebarToggle.addEventListener("click", toggleSidebar);
+    mindMapCheckbox.addEventListener("change", onMindMapToggleChanged);
+
     uploadBtn.addEventListener("click", () => mdFile.click());
 
     mdFile.addEventListener("change", async () => {
@@ -543,7 +767,7 @@
 
       item.innerHTML = [
         "<div class='kb-name'>" + escapeHtml(trace.fileName || trace.knowledgeBaseId) + "</div>",
-        "<div class='kb-meta'>" + escapeHtml(preview) + "</div>",
+        "<div class='kb-question'>" + escapeHtml(preview) + "</div>",
         "<div class='kb-meta'>KB: " + escapeHtml(trace.knowledgeBaseId) + "</div>"
       ].join("");
 
@@ -570,8 +794,7 @@
 
     currentHistory = readHistory(active.knowledgeBaseId);
     renderChatHistory(currentHistory);
-    minorHint.textContent = "运行细节默认隐藏";
-    minorHint.className = "";
+    resetMinorHint();
   }
 
   async function sendQuestion() {
@@ -593,7 +816,6 @@
 
     questionInput.value = "";
     questionInput.style.height = "46px";
-    runStatus.textContent = "生成中";
     sendBtn.disabled = true;
     minorHint.className = "";
 
@@ -612,7 +834,8 @@
           question,
           sessionId: active.sessionId,
           knowledgeBaseId: active.knowledgeBaseId,
-          topK: FIXED_TOP_K
+          topK: FIXED_TOP_K,
+          enableMindMap: Boolean(mindMapCheckbox.checked)
         })
       });
 
@@ -662,6 +885,10 @@
               if (payload.uncertain) {
                 minorHint.textContent = "当前回答存在不确定性，可补充文档后再试";
                 minorHint.className = "warn";
+              } else if (payload.mindMapCommand) {
+                minorHint.textContent = "已触发思维导图生成，取消勾选即可恢复普通回答";
+                minorHint.className = "";
+                appendMindMapImage(payload.mindMapCommand);
               }
               updateMessageNode(assistantNode, assistantMessage);
             }
@@ -681,7 +908,6 @@
     } finally {
       currentHistory = normalizeHistory(currentHistory);
       saveHistory(active.knowledgeBaseId, currentHistory);
-      runStatus.textContent = "空闲";
       sendBtn.disabled = false;
       renderKbList();
     }
@@ -700,7 +926,11 @@
     div.className = "msg " + role;
     const content = document.createElement("div");
     content.className = "msg-content";
-    content.textContent = text;
+    if (role === "assistant") {
+      content.innerHTML = markdownToHtml(text || "");
+    } else {
+      content.textContent = text;
+    }
     div.appendChild(content);
 
     if (role === "assistant" && source) {
@@ -718,7 +948,7 @@
   function updateMessageNode(node, message) {
     const content = node.querySelector(".msg-content");
     if (content) {
-      content.textContent = message.text || "";
+      content.innerHTML = markdownToHtml(message.text || "");
     }
 
     let sourceEl = node.querySelector(".msg-source");
@@ -817,6 +1047,134 @@
 
   function scrollBottom() {
     chatScroll.scrollTop = chatScroll.scrollHeight;
+  }
+
+  function markdownToHtml(markdown) {
+    const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+    const html = [];
+    let inCode = false;
+    let inList = false;
+    const codeBuffer = [];
+
+    const closeList = () => {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine || "";
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith("```")) {
+        if (inCode) {
+          html.push("<pre><code>" + escapeHtml(codeBuffer.join("\n")) + "</code></pre>");
+          codeBuffer.length = 0;
+          inCode = false;
+        } else {
+          closeList();
+          inCode = true;
+        }
+        continue;
+      }
+
+      if (inCode) {
+        codeBuffer.push(line);
+        continue;
+      }
+
+      if (/^[-*]\s+/.test(trimmed)) {
+        if (!inList) {
+          html.push("<ul>");
+          inList = true;
+        }
+        html.push("<li>" + formatInline(trimmed.replace(/^[-*]\s+/, "")) + "</li>");
+        continue;
+      }
+
+      closeList();
+
+      if (trimmed.length === 0) {
+        html.push("<p></p>");
+        continue;
+      }
+
+      if (/^###\s+/.test(trimmed)) {
+        html.push("<h3>" + formatInline(trimmed.replace(/^###\s+/, "")) + "</h3>");
+      } else if (/^##\s+/.test(trimmed)) {
+        html.push("<h2>" + formatInline(trimmed.replace(/^##\s+/, "")) + "</h2>");
+      } else if (/^#\s+/.test(trimmed)) {
+        html.push("<h1>" + formatInline(trimmed.replace(/^#\s+/, "")) + "</h1>");
+      } else {
+        html.push("<p>" + formatInline(trimmed) + "</p>");
+      }
+    }
+
+    closeList();
+    if (inCode) {
+      html.push("<pre><code>" + escapeHtml(codeBuffer.join("\n")) + "</code></pre>");
+    }
+
+    return html.join("");
+  }
+
+  function formatInline(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="mindmap-image" alt="$1" src="$2" />');
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    s = s.replace(/\[([^\]]+)]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return s;
+  }
+
+  function appendMindMapImage(command) {
+    if (!command || !command.arguments) {
+      return;
+    }
+    const imageUrl = command.arguments.imageUrl || command.arguments.url;
+    if (!imageUrl) {
+      return;
+    }
+
+    const tip = "思维导图\n\n![MindMap](" + imageUrl + ")";
+    currentHistory.push({ role: "assistant", text: tip, source: "MindMap" });
+    currentHistory = normalizeHistory(currentHistory);
+    saveHistory(active.knowledgeBaseId, currentHistory);
+    appendMessage("assistant", tip, "MindMap");
+  }
+
+  function initSidebarState() {
+    const collapsed = localStorage.getItem("prag.sidebar.collapsed") === "1";
+    if (collapsed) {
+      appRoot.classList.add("sidebar-collapsed");
+    }
+  }
+
+  function toggleSidebar() {
+    appRoot.classList.toggle("sidebar-collapsed");
+    localStorage.setItem("prag.sidebar.collapsed", appRoot.classList.contains("sidebar-collapsed") ? "1" : "0");
+  }
+
+  function onMindMapToggleChanged() {
+    mindMapCheckbox.parentElement.classList.toggle("active", mindMapCheckbox.checked);
+    if (mindMapCheckbox.checked) {
+      minorHint.textContent = "思维导图模式已开启，本轮回答将附带导图指令";
+      minorHint.className = "";
+      return;
+    }
+    minorHint.textContent = "思维导图模式已关闭，后续回答恢复普通模式";
+    minorHint.className = "";
+  }
+
+  function resetMinorHint() {
+    if (mindMapCheckbox.checked) {
+      minorHint.textContent = "思维导图模式已开启，本轮回答将附带导图指令";
+    } else {
+      minorHint.textContent = "运行细节默认隐藏";
+    }
+    minorHint.className = "";
   }
 
   questionInput.addEventListener("input", () => {

@@ -59,6 +59,20 @@ services:
       - milvus_data:/var/lib/milvus
     restart: unless-stopped
 
+  mcp-web-search:
+    image: wiremock/wiremock:latest
+    container_name: p-rag-mcp-web-search
+    ports:
+      - "18080:8080"
+    restart: unless-stopped
+
+  mcp-diagram:
+    image: wiremock/wiremock:latest
+    container_name: p-rag-mcp-diagram
+    ports:
+      - "18081:8080"
+    restart: unless-stopped
+
 volumes:
   redis_data:
   etcd_data:

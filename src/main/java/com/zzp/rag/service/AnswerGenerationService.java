@@ -40,13 +40,8 @@ public class AnswerGenerationService {
             DataSourceType sourceType) {
         String fallback = fallbackAnswer(question, history, evidence, sourceType);
 
-        // 对于“知识库无证据”场景，直接返回确定性提示，避免模型自由发挥导致答复失真。
-        if (sourceType == DataSourceType.KNOWLEDGE_BASE && (evidence == null || evidence.isEmpty())) {
-            return fallback;
-        }
-
         String llmAnswer = askLlmIfConfigured(question, history, evidence, sourceType);
-        if (llmAnswer != null && !llmAnswer.isBlank()) {
+        if (llmAnswer != null && !llmAnswer.isBlank() && !isLowValueAnswer(llmAnswer)) {
             return llmAnswer.trim();
         }
         return fallback;
@@ -163,7 +158,9 @@ public class AnswerGenerationService {
         StringBuilder systemPrompt = new StringBuilder();
         systemPrompt.append("你是企业级知识库问答助手。请只根据提供的证据作答。")
                 .append("如果证据不足，明确说不确定，不要编造。")
+                .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
                 .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
+                .append("回答格式使用 Markdown，结构清晰，必要时使用列表。")
                 .append("来源类型=")
                 .append(sourceType == DataSourceType.KNOWLEDGE_BASE ? "知识库" : "联网");
 
@@ -224,5 +221,13 @@ public class AnswerGenerationService {
             return normalized;
         }
         return normalized.substring(0, maxLen) + "...";
+    }
+
+    private boolean isLowValueAnswer(String answer) {
+        String normalized = answer == null ? "" : answer.replaceAll("\\s+", "").toLowerCase();
+        return normalized.contains("没有提供任何实质性的文章信息或摘要")
+                || normalized.contains("未提供任何实质性的文章信息或摘要")
+                || normalized.contains("没有提供文章信息")
+                || normalized.contains("无法根据提供的内容回答");
     }
 }

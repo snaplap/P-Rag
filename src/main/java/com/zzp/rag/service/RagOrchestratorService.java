@@ -51,6 +51,7 @@ public class RagOrchestratorService {
         String question = request.getQuestion().trim();
         String sessionId = normalizeSessionId(request.getSessionId());
         String knowledgeBaseId = normalizeKnowledgeBaseId(request.getKnowledgeBaseId());
+        boolean enableMindMap = Boolean.TRUE.equals(request.getEnableMindMap());
         int topK = request.getTopK() == null
                 ? ragProperties.getRetrieval().getDefaultTopK()
                 : Math.max(1, request.getTopK());
@@ -68,12 +69,13 @@ public class RagOrchestratorService {
         List<RetrievalChunk> evidence = retrievalService.retrieve(question, topK, knowledgeBaseId);
         DataSourceType sourceType = DataSourceType.KNOWLEDGE_BASE;
 
-        // 第三步：无命中或低分时走联网兜底。
-        boolean canFallbackWeb = knowledgeBaseId == null;
-        if ((evidence.isEmpty() || evidence.get(0).score() < ragProperties.getRetrieval().getMinScore())
-                && canFallbackWeb) {
-            evidence = fallbackToWebSearch(question, topK);
-            sourceType = DataSourceType.WEB;
+        // 第三步：无命中或低分时走联网兜底（即使指定了知识库也允许兜底）。
+        if (evidence.isEmpty() || evidence.get(0).score() < ragProperties.getRetrieval().getMinScore()) {
+            List<RetrievalChunk> webEvidence = fallbackToWebSearch(question, topK);
+            if (!webEvidence.isEmpty()) {
+                evidence = webEvidence;
+                sourceType = DataSourceType.WEB;
+            }
         }
 
         String answerText = answerGenerationService.generateAnswer(question, history, evidence, sourceType);
@@ -83,7 +85,10 @@ public class RagOrchestratorService {
             answerText = answerText + "\n不确定性声明：当前证据不足，结论仅供参考。\n";
         }
 
-        MindMapCommand mindMapCommand = mcpToolClient.generateMindMap(question, answerText, sourceType, evidence);
+        MindMapCommand mindMapCommand = null;
+        if (enableMindMap) {
+            mindMapCommand = mcpToolClient.generateMindMap(question, answerText, sourceType, evidence);
+        }
 
         RagAnswer ragAnswer = new RagAnswer(
                 question,

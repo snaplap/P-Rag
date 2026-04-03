@@ -17,6 +17,8 @@ public class QueryRequest {
 
     private Integer topK;
 
+    private Boolean enableMindMap;
+
     public String getQuestion() {
         return question;
     }
@@ -47,5 +49,13 @@ public class QueryRequest {
 
     public void setKnowledgeBaseId(String knowledgeBaseId) {
         this.knowledgeBaseId = knowledgeBaseId;
+    }
+
+    public Boolean getEnableMindMap() {
+        return enableMindMap;
+    }
+
+    public void setEnableMindMap(Boolean enableMindMap) {
+        this.enableMindMap = enableMindMap;
     }
 }

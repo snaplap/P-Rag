@@ -268,6 +268,9 @@ public class RagProperties {
 
     public static class Mcp {
         private boolean useMock = true;
+        private String webSearchUrl = "http://localhost:18080/search";
+        private String diagramUrl = "http://localhost:18081/diagram";
+        private int callTimeoutMs = 6000;
 
         public boolean isUseMock() {
             return useMock;
@@ -275,6 +278,30 @@ public class RagProperties {
 
         public void setUseMock(boolean useMock) {
             this.useMock = useMock;
+        }
+
+        public String getWebSearchUrl() {
+            return webSearchUrl;
+        }
+
+        public void setWebSearchUrl(String webSearchUrl) {
+            this.webSearchUrl = webSearchUrl;
+        }
+
+        public String getDiagramUrl() {
+            return diagramUrl;
+        }
+
+        public void setDiagramUrl(String diagramUrl) {
+            this.diagramUrl = diagramUrl;
+        }
+
+        public int getCallTimeoutMs() {
+            return callTimeoutMs;
+        }
+
+        public void setCallTimeoutMs(int callTimeoutMs) {
+            this.callTimeoutMs = callTimeoutMs;
         }
     }
 }
