@@ -36,6 +36,21 @@ mvn spring-boot:run
 http://localhost:8080/
 ```
 
+## 配置防回退说明（重要）
+
+如果你修改的是 `target/classes/application.yml`，运行后会被重新覆盖，这是正常现象：
+
+1. `target/classes` 属于构建产物目录
+2. 每次编译/运行时，Maven 会把 `src/main/resources/application.yml` 重新复制到该目录
+
+推荐做法：
+
+1. 修改 `src/main/resources/application.yml`
+2. 私密配置写在项目根目录 `config/application-secrets.yml`
+3. `config/application-secrets.yml` 可手动创建，内容只保留你要覆盖的键
+
+这样可以避免每次运行配置被覆盖，也能避免把 API Key 硬编码进源码。
+
 ## 主要能力
 
 1. 缓存优先：先查 Redis，命中直接返回
@@ -117,3 +132,4 @@ http://localhost:8080/
 
 1. 当前 Milvus 远端调用保留了扩展点，默认仍有本地回退索引，方便开发和联调。
 2. 当前 MCP 联网搜索与 MindMap 为 Mock 实现，后续可切换真实 MCP 服务。
+3. 前端默认隐藏检索分数、缓存命中、MindMap 指令等运行细节，用户只看到自然语言回答。

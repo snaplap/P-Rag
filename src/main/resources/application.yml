@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: p-rag
+  config:
+    # 可在项目根目录 config/application-secrets.yml 写入私有配置，覆盖默认值。
+    import: optional:file:./config/application-secrets.yml
   datasource:
     url: jdbc:h2:mem:prag;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -28,13 +31,13 @@ app:
   rag:
     llm:
       # 模型提供商标识（示例：dashscope/openai/zhipu）
-      provider: ${LLM_PROVIDER:dashscope}
+      provider: ${LLM_PROVIDER:deepseek}
       # 兼容 OpenAI 协议的网关地址，用户可替换为自有网关。
-      base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
       # 大模型 API Key，建议通过环境变量注入，不要硬编码。
       api-key: ${LLM_API_KEY:}
       # 对话模型名称。
-      model: ${LLM_MODEL:qwen-plus}
+      model: ${LLM_MODEL:deepseek-chat}
       # 向量模型名称。
       embedding-model: ${EMBEDDING_MODEL:text-embedding-v3}
       connect-timeout-ms: ${LLM_CONNECT_TIMEOUT_MS:10000}
@@ -66,4 +69,4 @@ app:
 logging:
   level:
     root: INFO
-    com.zzp.rag: INFO
+    "[com.zzp.rag]": INFO

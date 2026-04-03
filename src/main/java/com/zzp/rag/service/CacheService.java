@@ -32,8 +32,8 @@ public class CacheService {
         this.ragProperties = ragProperties;
     }
 
-    public Optional<RagAnswer> get(String question) {
-        String key = buildKey(question);
+    public Optional<RagAnswer> get(String question, String knowledgeBaseId) {
+        String key = buildKey(question, knowledgeBaseId);
 
         try {
             // 优先读取 Redis（生产路径）。
@@ -57,8 +57,8 @@ public class CacheService {
         return Optional.of(entry.value);
     }
 
-    public void put(String question, RagAnswer answer) {
-        String key = buildKey(question);
+    public void put(String question, String knowledgeBaseId, RagAnswer answer) {
+        String key = buildKey(question, knowledgeBaseId);
         long ttl = Math.max(30L, ragProperties.getCache().getTtlSeconds());
 
         try {
@@ -71,9 +71,10 @@ public class CacheService {
         }
     }
 
-    private String buildKey(String question) {
+    private String buildKey(String question, String knowledgeBaseId) {
         String normalized = question == null ? "" : question.trim().toLowerCase();
-        String hash = md5Hex(normalized);
+        String kb = knowledgeBaseId == null ? "global" : knowledgeBaseId.trim().toLowerCase();
+        String hash = md5Hex(kb + "::" + normalized);
         return ragProperties.getCache().getKeyPrefix() + hash;
     }
 

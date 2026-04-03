@@ -56,7 +56,7 @@ public class RagOrchestratorService {
                 : Math.max(1, request.getTopK());
 
         // 第一步：缓存优先，命中直接返回。
-        Optional<RagAnswer> cacheHit = cacheService.get(question);
+        Optional<RagAnswer> cacheHit = cacheService.get(question, knowledgeBaseId);
         if (cacheHit.isPresent()) {
             RagAnswer answer = cacheHit.get().markCacheHit();
             qaAuditService.safeInsert(sessionId, question, answer.dataSource(), answer.uncertain(), true);
@@ -69,7 +69,9 @@ public class RagOrchestratorService {
         DataSourceType sourceType = DataSourceType.KNOWLEDGE_BASE;
 
         // 第三步：无命中或低分时走联网兜底。
-        if (evidence.isEmpty() || evidence.get(0).score() < ragProperties.getRetrieval().getMinScore()) {
+        boolean canFallbackWeb = knowledgeBaseId == null;
+        if ((evidence.isEmpty() || evidence.get(0).score() < ragProperties.getRetrieval().getMinScore())
+                && canFallbackWeb) {
             evidence = fallbackToWebSearch(question, topK);
             sourceType = DataSourceType.WEB;
         }
@@ -94,7 +96,7 @@ public class RagOrchestratorService {
                 mindMapCommand);
 
         // 第四步：写缓存、写会话记忆、写审计。
-        cacheService.put(question, ragAnswer);
+        cacheService.put(question, knowledgeBaseId, ragAnswer);
         sessionContextService.append(sessionId, new ConversationTurn(question, answerText, Instant.now()));
         qaAuditService.safeInsert(sessionId, question, sourceType, uncertain, false);
         return ragAnswer;

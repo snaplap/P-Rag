@@ -1,52 +1,218 @@
 package com.zzp.rag.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zzp.rag.config.RagProperties;
 import com.zzp.rag.domain.ConversationTurn;
 import com.zzp.rag.domain.DataSourceType;
 import com.zzp.rag.domain.RetrievalChunk;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AnswerGenerationService {
+
+    private static final Logger log = LoggerFactory.getLogger(AnswerGenerationService.class);
+
+    private final RagProperties ragProperties;
+    private final ObjectMapper objectMapper;
+
+    public AnswerGenerationService(RagProperties ragProperties, ObjectMapper objectMapper) {
+        this.ragProperties = ragProperties;
+        this.objectMapper = objectMapper;
+    }
 
     public String generateAnswer(
             String question,
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
+        String fallback = fallbackAnswer(question, history, evidence, sourceType);
+
+        // 对于“知识库无证据”场景，直接返回确定性提示，避免模型自由发挥导致答复失真。
+        if (sourceType == DataSourceType.KNOWLEDGE_BASE && (evidence == null || evidence.isEmpty())) {
+            return fallback;
+        }
+
+        String llmAnswer = askLlmIfConfigured(question, history, evidence, sourceType);
+        if (llmAnswer != null && !llmAnswer.isBlank()) {
+            return llmAnswer.trim();
+        }
+        return fallback;
+    }
+
+    private String fallbackAnswer(
+            String question,
+            List<ConversationTurn> history,
+            List<RetrievalChunk> evidence,
+            DataSourceType sourceType) {
         StringBuilder builder = new StringBuilder();
-        builder.append("结论（仅基于已检索证据）：\n");
+        builder.append("根据当前可用内容，回答如下：\n");
 
         if (evidence == null || evidence.isEmpty()) {
-            builder.append("当前检索证据不足，无法确定答案。\n");
-            builder.append("请补充更具体的问题或先上传相关知识文档。\n");
-            builder.append("数据来源：").append(sourceLabel(sourceType)).append("\n");
+            if (sourceType == DataSourceType.KNOWLEDGE_BASE) {
+                builder.append("我在当前知识库中没有找到足够信息来回答这个问题。\n");
+                builder.append("你可以尝试换个问法，或补充更相关的文档后再提问。\n");
+            } else {
+                builder.append("当前可用资料不足，暂时无法给出可靠结论。\n");
+            }
             return builder.toString();
         }
 
-        builder.append("问题：").append(question).append("\n");
-        builder.append("证据要点：\n");
+        builder.append("你问的是：").append(question).append("\n");
 
-        int maxEvidence = Math.min(3, evidence.size());
-        for (int i = 0; i < maxEvidence; i++) {
-            RetrievalChunk chunk = evidence.get(i);
-            builder.append(i + 1)
-                    .append(". ")
-                    .append(trimSnippet(chunk.content(), 160))
-                    .append(" [score=")
-                    .append(String.format("%.3f", chunk.score()))
-                    .append("]\n");
+        RetrievalChunk primary = evidence.get(0);
+        builder.append(trimSnippet(primary.content(), 260)).append("\n");
+
+        if (evidence.size() > 1) {
+            builder.append("\n补充信息：").append(trimSnippet(evidence.get(1).content(), 160)).append("\n");
         }
 
         if (history != null && !history.isEmpty()) {
             ConversationTurn latestTurn = history.get(history.size() - 1);
-            builder.append("必要历史参考：").append(trimSnippet(latestTurn.question(), 80)).append("\n");
+            builder.append("\n我结合了你上一轮的提问语境：")
+                    .append(trimSnippet(latestTurn.question(), 48))
+                    .append("。\n");
         }
 
-        builder.append("数据来源：").append(sourceLabel(sourceType)).append("\n");
-        builder.append("说明：答案严格基于上述证据，不包含未检索到的外部事实。\n");
+        if (sourceType == DataSourceType.WEB) {
+            builder.append("\n以上回答来自已检索到的公开资料。\n");
+        }
         return builder.toString();
+    }
+
+    private String askLlmIfConfigured(
+            String question,
+            List<ConversationTurn> history,
+            List<RetrievalChunk> evidence,
+            DataSourceType sourceType) {
+        RagProperties.Llm llm = ragProperties.getLlm();
+        if (isBlank(llm.getApiKey()) || isBlank(llm.getBaseUrl()) || isBlank(llm.getModel())) {
+            return null;
+        }
+
+        try {
+            String endpoint = llm.getBaseUrl().endsWith("/")
+                    ? llm.getBaseUrl() + "chat/completions"
+                    : llm.getBaseUrl() + "/chat/completions";
+
+            String evidenceText = buildEvidenceText(evidence);
+            String historyText = buildHistoryText(history);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("model", llm.getModel());
+            payload.put("temperature", 0.2);
+            payload.put("stream", false);
+            payload.put("messages", buildMessages(question, evidenceText, historyText, sourceType));
+
+            String body = objectMapper.writeValueAsString(payload);
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofMillis(Math.max(1000, llm.getConnectTimeoutMs())))
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
+                    .timeout(Duration.ofMillis(Math.max(3000, llm.getReadTimeoutMs())))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + llm.getApiKey().trim())
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.warn("LLM response status not success: {}", response.statusCode());
+                return null;
+            }
+
+            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty()) {
+                return null;
+            }
+
+            JsonNode contentNode = choices.get(0).path("message").path("content");
+            if (contentNode.isMissingNode() || contentNode.isNull()) {
+                return null;
+            }
+            String content = contentNode.asText();
+            return content == null ? null : content.trim();
+        } catch (Exception ex) {
+            log.warn("Call LLM failed, fallback template answer: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+    private List<Map<String, String>> buildMessages(
+            String question,
+            String evidenceText,
+            String historyText,
+            DataSourceType sourceType) {
+        List<Map<String, String>> messages = new ArrayList<>();
+
+        StringBuilder systemPrompt = new StringBuilder();
+        systemPrompt.append("你是企业级知识库问答助手。请只根据提供的证据作答。")
+                .append("如果证据不足，明确说不确定，不要编造。")
+                .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
+                .append("来源类型=")
+                .append(sourceType == DataSourceType.KNOWLEDGE_BASE ? "知识库" : "联网");
+
+        messages.add(Map.of("role", "system", "content", systemPrompt.toString()));
+
+        if (!historyText.isBlank()) {
+            messages.add(Map.of("role", "user", "content", "历史对话摘要:\n" + historyText));
+        }
+
+        String userPrompt = "问题:\n" + question + "\n\n证据:\n" + evidenceText
+                + "\n\n请输出简洁、直接、用户可读的回答。";
+        messages.add(Map.of("role", "user", "content", userPrompt));
+        return messages;
+    }
+
+    private String buildEvidenceText(List<RetrievalChunk> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return "无可用证据。";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        int limit = Math.min(4, evidence.size());
+        for (int i = 0; i < limit; i++) {
+            RetrievalChunk chunk = evidence.get(i);
+            builder.append(i + 1)
+                    .append(". ")
+                    .append(trimSnippet(chunk.content(), 400))
+                    .append("\n");
+        }
+        return builder.toString();
+    }
+
+    private String buildHistoryText(List<ConversationTurn> history) {
+        if (history == null || history.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        int from = Math.max(0, history.size() - 2);
+        for (int i = from; i < history.size(); i++) {
+            ConversationTurn turn = history.get(i);
+            builder.append("Q:").append(trimSnippet(turn.question(), 120)).append("\n");
+            builder.append("A:").append(trimSnippet(turn.answer(), 180)).append("\n");
+        }
+        return builder.toString();
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String trimSnippet(String text, int maxLen) {
@@ -58,9 +224,5 @@ public class AnswerGenerationService {
             return normalized;
         }
         return normalized.substring(0, maxLen) + "...";
-    }
-
-    private String sourceLabel(DataSourceType sourceType) {
-        return sourceType == DataSourceType.KNOWLEDGE_BASE ? "知识库" : "联网";
     }
 }

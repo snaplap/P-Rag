@@ -48,6 +48,11 @@ public class MilvusVectorStore implements VectorStore {
 
     @Override
     public List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId) {
+        // 为避免跨知识库混淆，检索阶段必须携带 knowledgeBaseId。
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return List.of();
+        }
+
         if (ragProperties.getMilvus().isUseRemote()) {
             List<RetrievalChunk> remoteChunks = searchFromRemoteSafely(queryVector, topK, knowledgeBaseId);
             if (!remoteChunks.isEmpty()) {
@@ -106,10 +111,8 @@ public class MilvusVectorStore implements VectorStore {
             payload.put("data", List.of(queryVector));
             payload.put("annsField", "vector");
             payload.put("limit", Math.max(1, topK));
-            payload.put("outputFields", List.of("id", "documentId", "content"));
-            if (knowledgeBaseId != null) {
-                payload.put("filter", "knowledgeBaseId == \"" + knowledgeBaseId + "\"");
-            }
+            payload.put("outputFields", List.of("id", "knowledgeBaseId", "documentId", "content"));
+            payload.put("filter", "knowledgeBaseId == \"" + knowledgeBaseId + "\"");
 
             Map<String, Object> response = postMilvus("/v2/vectordb/entities/search", payload);
             Object rawData = response.get("data");
@@ -124,9 +127,14 @@ public class MilvusVectorStore implements VectorStore {
                 }
 
                 String id = String.valueOf(map.get("id"));
+                String kbId = String.valueOf(map.get("knowledgeBaseId"));
                 String documentId = String.valueOf(map.get("documentId"));
                 String content = String.valueOf(map.get("content"));
                 double score = parseScore(map.get("score"));
+
+                if (!knowledgeBaseId.equals(kbId)) {
+                    continue;
+                }
 
                 chunks.add(new RetrievalChunk(id, documentId, content, score, DataSourceType.KNOWLEDGE_BASE));
             }
