@@ -31,7 +31,7 @@ app:
       # 兼容 OpenAI 协议的网关地址，用户可替换为自有网关。
       base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
       # 大模型 API Key，建议通过环境变量注入，不要硬编码。
-      api-key: ${LLM_API_KEY:sk-a56a22710eab4b27b451c388e663fe97}
+      api-key: ${LLM_API_KEY:}
       # 对话模型名称。
       model: ${LLM_MODEL:deepseek-chat}
       # 向量模型名称。
