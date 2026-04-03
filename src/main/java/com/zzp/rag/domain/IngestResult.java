@@ -1,7 +1,10 @@
 package com.zzp.rag.domain;
 
 public record IngestResult(
-        String documentId,
-        int chunkCount,
-        String message) {
+                String knowledgeBaseId,
+                String sessionId,
+                String documentId,
+                String fileName,
+                int chunkCount,
+                String message) {
 }

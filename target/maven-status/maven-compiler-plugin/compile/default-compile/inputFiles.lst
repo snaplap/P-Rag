@@ -5,6 +5,7 @@ D:\Projects\p-rag\src\main\java\com\zzp\rag\controller\RagController.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\ConversationTurn.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\DataSourceType.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\IngestResult.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\KnowledgeBaseTrace.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\MindMapCommand.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\QueryRequest.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\RagAnswer.java
@@ -12,11 +13,13 @@ D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\RagEvaluation.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\RetrievalChunk.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\VectorDocument.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\domain\WebSearchResult.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\mapper\KnowledgeUploadMapper.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\mapper\QaAuditMapper.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\AnswerGenerationService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\CacheService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\EmbeddingService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\HashEmbeddingService.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\service\KnowledgeTraceService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MarkdownChunker.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MarkdownIngestionService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\McpToolClient.java

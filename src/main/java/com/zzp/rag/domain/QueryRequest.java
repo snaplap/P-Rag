@@ -12,6 +12,9 @@ public class QueryRequest {
     @Size(max = 128, message = "sessionId长度不能超过128")
     private String sessionId;
 
+    @Size(max = 128, message = "knowledgeBaseId长度不能超过128")
+    private String knowledgeBaseId;
+
     private Integer topK;
 
     public String getQuestion() {
@@ -36,5 +39,13 @@ public class QueryRequest {
 
     public void setTopK(Integer topK) {
         this.topK = topK;
+    }
+
+    public String getKnowledgeBaseId() {
+        return knowledgeBaseId;
+    }
+
+    public void setKnowledgeBaseId(String knowledgeBaseId) {
+        this.knowledgeBaseId = knowledgeBaseId;
     }
 }

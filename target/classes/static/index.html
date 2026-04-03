@@ -6,19 +6,19 @@
   <title>P-Rag 智能问答台</title>
   <style>
     :root {
-      --bg-a: #f5f7f2;
-      --bg-b: #e8efe8;
-      --surface: rgba(255, 255, 255, 0.78);
-      --surface-strong: rgba(255, 255, 255, 0.92);
-      --line: rgba(42, 56, 43, 0.14);
-      --text-main: #203126;
-      --text-sub: #58725f;
-      --accent: #2b8a5d;
-      --accent-soft: #cfeadb;
+      --bg-a: #f6f5f2;
+      --bg-b: #e9eef3;
+      --surface: rgba(255, 255, 255, 0.8);
+      --surface-strong: rgba(255, 255, 255, 0.93);
+      --line: rgba(56, 73, 93, 0.13);
+      --text-main: #2b3748;
+      --text-sub: #617286;
+      --accent: #4a8ea8;
+      --accent-soft: #d8edf4;
       --warn: #9a6e1d;
       --danger: #9b3e3e;
-      --shadow-lg: 0 18px 50px rgba(29, 53, 40, 0.12);
-      --shadow-sm: 0 6px 18px rgba(29, 53, 40, 0.08);
+      --shadow-lg: 0 18px 50px rgba(43, 66, 96, 0.12);
+      --shadow-sm: 0 6px 18px rgba(43, 66, 96, 0.08);
       --radius-xl: 22px;
       --radius-lg: 16px;
       --radius-md: 12px;
@@ -35,10 +35,10 @@
       font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
       color: var(--text-main);
       background:
-        radial-gradient(circle at 12% 10%, #eef9f1 0%, transparent 38%),
-        radial-gradient(circle at 88% 8%, #f8f2e7 0%, transparent 35%),
+        radial-gradient(circle at 12% 10%, #eff4ff 0%, transparent 38%),
+        radial-gradient(circle at 88% 8%, #f9f2e8 0%, transparent 35%),
         linear-gradient(145deg, var(--bg-a), var(--bg-b));
-      animation: bgFloat 10s ease-in-out infinite alternate;
+      animation: bgFloat 14s ease-in-out infinite alternate;
     }
 
     .layout {
@@ -166,6 +166,49 @@
       white-space: nowrap;
     }
 
+    .trace-list {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 220px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .trace-item {
+      border: 1px solid rgba(74, 112, 140, 0.2);
+      background: #f8fbfd;
+      border-radius: 10px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .trace-item:hover {
+      transform: translateY(-1px);
+      border-color: rgba(74, 142, 168, 0.55);
+      background: #eef7fb;
+    }
+
+    .trace-item.active {
+      border-color: rgba(74, 142, 168, 0.75);
+      background: #e9f5fb;
+    }
+
+    .trace-file {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #33445a;
+    }
+
+    .trace-meta {
+      margin-top: 3px;
+      font-size: 0.76rem;
+      color: #6a7c92;
+      line-height: 1.4;
+    }
+
     .btn {
       border: 0;
       border-radius: 999px;
@@ -218,6 +261,20 @@
       border: 1px solid rgba(82, 110, 92, 0.2);
       border-radius: 999px;
       background: #f3f8f4;
+    }
+
+    .active-kb {
+      font-size: 0.8rem;
+      color: #49627a;
+      background: #edf5fb;
+      border: 1px solid #cfe0ee;
+      border-radius: 999px;
+      padding: 4px 10px;
+      margin-right: 8px;
+      max-width: 320px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
     .chat-body {
@@ -361,14 +418,18 @@
     <section class="card">
       <h3>会话设置</h3>
       <div class="field">
+        <label for="knowledgeBaseId">Knowledge Base ID</label>
+        <input id="knowledgeBaseId" type="text" placeholder="上传文件后自动生成" readonly>
+      </div>
+      <div class="field">
         <label for="sessionId">Session ID</label>
-        <input id="sessionId" type="text" placeholder="例如 user-001" value="web-session-001">
+        <input id="sessionId" type="text" placeholder="上传文件后自动生成" readonly>
       </div>
       <div class="field">
         <label for="topK">TopK</label>
         <input id="topK" type="text" placeholder="默认 5" value="5">
       </div>
-      <div class="hint">提示：同一 Session ID 会复用必要历史，支持轻量对话记忆。</div>
+      <div class="hint">提示：每次上传文件都会创建独立知识库和新会话，历史上传记录可随时切换继续提问。</div>
     </section>
 
     <section class="card">
@@ -381,13 +442,18 @@
         <button class="btn btn-primary" id="uploadBtn">上传并向量化</button>
       </div>
       <div class="hint" id="uploadStatus">等待上传。</div>
+
+      <div class="trace-list" id="traceList"></div>
     </section>
   </aside>
 
   <main class="panel right">
     <div class="chat-head">
       <div class="title">RAG 对话</div>
-      <div class="status" id="runStatus">空闲</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="active-kb" id="activeKbLabel">当前知识库：未选择</div>
+        <div class="status" id="runStatus">空闲</div>
+      </div>
     </div>
 
     <div class="chat-body" id="chatBody">
@@ -407,6 +473,8 @@
 <script>
   const chatBody = document.getElementById("chatBody");
   const runStatus = document.getElementById("runStatus");
+  const activeKbLabel = document.getElementById("activeKbLabel");
+  const knowledgeBaseIdInput = document.getElementById("knowledgeBaseId");
   const sessionIdInput = document.getElementById("sessionId");
   const topKInput = document.getElementById("topK");
   const questionInput = document.getElementById("questionInput");
@@ -415,6 +483,12 @@
   const fileInput = document.getElementById("mdFile");
   const fileName = document.getElementById("fileName");
   const uploadStatus = document.getElementById("uploadStatus");
+  const traceList = document.getElementById("traceList");
+
+  let traces = [];
+  let activeConversation = null;
+
+  loadKnowledgeBases();
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files && fileInput.files[0];
@@ -447,8 +521,17 @@
       }
 
       const data = await response.json();
-      uploadStatus.textContent = "上传成功：documentId=" + data.documentId + "，chunkCount=" + data.chunkCount;
+      uploadStatus.textContent = "上传成功：KB=" + data.knowledgeBaseId + "，chunkCount=" + data.chunkCount;
       uploadStatus.className = "hint";
+
+      activeConversation = {
+        knowledgeBaseId: data.knowledgeBaseId,
+        sessionId: data.sessionId,
+        fileName: data.fileName
+      };
+      syncActiveConversation();
+      resetChatForConversation(data.fileName || data.knowledgeBaseId);
+      await loadKnowledgeBases();
     } catch (err) {
       uploadStatus.textContent = "上传失败：" + (err.message || "未知错误");
       uploadStatus.className = "hint danger";
@@ -463,7 +546,14 @@
       return;
     }
 
-    const sessionId = sessionIdInput.value.trim() || "web-session-001";
+    if (!activeConversation || !activeConversation.knowledgeBaseId) {
+      uploadStatus.textContent = "请先上传 Markdown 文件并创建知识库。";
+      uploadStatus.className = "hint warn";
+      return;
+    }
+
+    const sessionId = sessionIdInput.value.trim() || activeConversation.sessionId;
+    const knowledgeBaseId = knowledgeBaseIdInput.value.trim() || activeConversation.knowledgeBaseId;
     const topK = Number.parseInt(topKInput.value.trim() || "5", 10);
 
     appendMessage("user", question);
@@ -482,6 +572,7 @@
         body: JSON.stringify({
           question,
           sessionId,
+          knowledgeBaseId,
           topK: Number.isNaN(topK) ? 5 : topK
         })
       });
@@ -561,6 +652,80 @@
     chatBody.appendChild(div);
     scrollToBottom();
     return div;
+  }
+
+  async function loadKnowledgeBases() {
+    try {
+      const response = await fetch("/api/rag/knowledge-bases", { method: "GET" });
+      if (!response.ok) {
+        throw new Error("加载知识库历史失败");
+      }
+      traces = await response.json();
+      renderTraces();
+
+      if (!activeConversation && traces.length > 0) {
+        const latest = traces[0];
+        activeConversation = {
+          knowledgeBaseId: latest.knowledgeBaseId,
+          sessionId: latest.sessionId,
+          fileName: latest.fileName
+        };
+        syncActiveConversation();
+      }
+    } catch (err) {
+      traceList.innerHTML = "<div class=\"hint warn\">历史加载失败</div>";
+    }
+  }
+
+  function renderTraces() {
+    if (!Array.isArray(traces) || traces.length === 0) {
+      traceList.innerHTML = "<div class=\"hint\">暂无上传记录</div>";
+      return;
+    }
+
+    traceList.innerHTML = "";
+    traces.forEach((trace) => {
+      const div = document.createElement("div");
+      const active = activeConversation && trace.knowledgeBaseId === activeConversation.knowledgeBaseId;
+      div.className = "trace-item" + (active ? " active" : "");
+      div.innerHTML = [
+        "<div class=\"trace-file\">" + escapeHtml(trace.fileName || trace.knowledgeBaseId) + "</div>",
+        "<div class=\"trace-meta\">KB: " + escapeHtml(trace.knowledgeBaseId) + "</div>",
+        "<div class=\"trace-meta\">Session: " + escapeHtml(trace.sessionId) + " | chunks: " + Number(trace.chunkCount || 0) + "</div>"
+      ].join("");
+
+      div.addEventListener("click", () => {
+        activeConversation = {
+          knowledgeBaseId: trace.knowledgeBaseId,
+          sessionId: trace.sessionId,
+          fileName: trace.fileName
+        };
+        syncActiveConversation();
+        renderTraces();
+        appendMessage("assistant", "已切换到知识库：" + (trace.fileName || trace.knowledgeBaseId) + "，你可以继续提问。");
+      });
+
+      traceList.appendChild(div);
+    });
+  }
+
+  function syncActiveConversation() {
+    if (!activeConversation) {
+      knowledgeBaseIdInput.value = "";
+      sessionIdInput.value = "";
+      activeKbLabel.textContent = "当前知识库：未选择";
+      return;
+    }
+
+    knowledgeBaseIdInput.value = activeConversation.knowledgeBaseId;
+    sessionIdInput.value = activeConversation.sessionId;
+    activeKbLabel.textContent = "当前知识库：" + (activeConversation.fileName || activeConversation.knowledgeBaseId);
+    renderTraces();
+  }
+
+  function resetChatForConversation(displayName) {
+    chatBody.innerHTML = "";
+    appendMessage("assistant", "已为文件【" + displayName + "】创建新对话。现在可以开始提问。");
   }
 
   function appendMeta(finalPayload) {

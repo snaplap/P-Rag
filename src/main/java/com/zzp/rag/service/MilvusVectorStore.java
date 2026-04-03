@@ -47,9 +47,9 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     @Override
-    public List<RetrievalChunk> search(double[] queryVector, int topK) {
+    public List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId) {
         if (ragProperties.getMilvus().isUseRemote()) {
-            List<RetrievalChunk> remoteChunks = searchFromRemoteSafely(queryVector, topK);
+            List<RetrievalChunk> remoteChunks = searchFromRemoteSafely(queryVector, topK, knowledgeBaseId);
             if (!remoteChunks.isEmpty()) {
                 return remoteChunks;
             }
@@ -58,6 +58,9 @@ public class MilvusVectorStore implements VectorStore {
         // 首版默认从本地索引返回；后续可替换为远端 Milvus 搜索结果。
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (VectorDocument doc : localIndex.values()) {
+            if (knowledgeBaseId != null && !knowledgeBaseId.equals(doc.knowledgeBaseId())) {
+                continue;
+            }
             double score = cosine(queryVector, doc.vector());
             chunks.add(new RetrievalChunk(
                     doc.id(),
@@ -79,6 +82,7 @@ public class MilvusVectorStore implements VectorStore {
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", vectorDocument.id());
+            row.put("knowledgeBaseId", vectorDocument.knowledgeBaseId());
             row.put("documentId", vectorDocument.documentId());
             row.put("content", vectorDocument.content());
             row.put("vector", vectorDocument.vector());
@@ -93,7 +97,7 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
-    private List<RetrievalChunk> searchFromRemoteSafely(double[] queryVector, int topK) {
+    private List<RetrievalChunk> searchFromRemoteSafely(double[] queryVector, int topK, String knowledgeBaseId) {
         try {
             ensureRemoteCollection();
 
@@ -103,6 +107,9 @@ public class MilvusVectorStore implements VectorStore {
             payload.put("annsField", "vector");
             payload.put("limit", Math.max(1, topK));
             payload.put("outputFields", List.of("id", "documentId", "content"));
+            if (knowledgeBaseId != null) {
+                payload.put("filter", "knowledgeBaseId == \"" + knowledgeBaseId + "\"");
+            }
 
             Map<String, Object> response = postMilvus("/v2/vectordb/entities/search", payload);
             Object rawData = response.get("data");
@@ -116,9 +123,9 @@ public class MilvusVectorStore implements VectorStore {
                     continue;
                 }
 
-                String id = String.valueOf(map.getOrDefault("id", ""));
-                String documentId = String.valueOf(map.getOrDefault("documentId", ""));
-                String content = String.valueOf(map.getOrDefault("content", ""));
+                String id = String.valueOf(map.get("id"));
+                String documentId = String.valueOf(map.get("documentId"));
+                String content = String.valueOf(map.get("content"));
                 double score = parseScore(map.get("score"));
 
                 chunks.add(new RetrievalChunk(id, documentId, content, score, DataSourceType.KNOWLEDGE_BASE));

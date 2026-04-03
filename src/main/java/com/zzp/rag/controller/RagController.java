@@ -2,8 +2,10 @@ package com.zzp.rag.controller;
 
 import com.zzp.rag.config.RagProperties;
 import com.zzp.rag.domain.IngestResult;
+import com.zzp.rag.domain.KnowledgeBaseTrace;
 import com.zzp.rag.domain.QueryRequest;
 import com.zzp.rag.domain.RagAnswer;
+import com.zzp.rag.service.KnowledgeTraceService;
 import com.zzp.rag.service.MarkdownIngestionService;
 import com.zzp.rag.service.RagOrchestratorService;
 import jakarta.validation.Valid;
@@ -34,14 +36,17 @@ public class RagController {
 
     private final RagOrchestratorService ragOrchestratorService;
     private final MarkdownIngestionService markdownIngestionService;
+    private final KnowledgeTraceService knowledgeTraceService;
     private final RagProperties ragProperties;
 
     public RagController(
             RagOrchestratorService ragOrchestratorService,
             MarkdownIngestionService markdownIngestionService,
+            KnowledgeTraceService knowledgeTraceService,
             RagProperties ragProperties) {
         this.ragOrchestratorService = ragOrchestratorService;
         this.markdownIngestionService = markdownIngestionService;
+        this.knowledgeTraceService = knowledgeTraceService;
         this.ragProperties = ragProperties;
     }
 
@@ -102,7 +107,12 @@ public class RagController {
             @RequestParam(value = "documentId", required = false) String documentId) throws IOException {
         // 首版仅支持 Markdown，读取后交给摄入服务做切片与向量化。
         String markdown = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return markdownIngestionService.ingestMarkdown(markdown, documentId);
+        return markdownIngestionService.ingestMarkdown(markdown, documentId, file.getOriginalFilename());
+    }
+
+    @GetMapping("/knowledge-bases")
+    public List<KnowledgeBaseTrace> listKnowledgeBases() {
+        return knowledgeTraceService.listAll();
     }
 
     @GetMapping("/health")

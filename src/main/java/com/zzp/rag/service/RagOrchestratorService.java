@@ -50,6 +50,7 @@ public class RagOrchestratorService {
     public RagAnswer answer(QueryRequest request) {
         String question = request.getQuestion().trim();
         String sessionId = normalizeSessionId(request.getSessionId());
+        String knowledgeBaseId = normalizeKnowledgeBaseId(request.getKnowledgeBaseId());
         int topK = request.getTopK() == null
                 ? ragProperties.getRetrieval().getDefaultTopK()
                 : Math.max(1, request.getTopK());
@@ -64,7 +65,7 @@ public class RagOrchestratorService {
 
         // 第二步：基于必要历史进行向量检索与重排。
         List<ConversationTurn> history = sessionContextService.load(sessionId);
-        List<RetrievalChunk> evidence = retrievalService.retrieve(question, topK);
+        List<RetrievalChunk> evidence = retrievalService.retrieve(question, topK, knowledgeBaseId);
         DataSourceType sourceType = DataSourceType.KNOWLEDGE_BASE;
 
         // 第三步：无命中或低分时走联网兜底。
@@ -119,5 +120,12 @@ public class RagOrchestratorService {
             return "anonymous";
         }
         return sessionId.trim();
+    }
+
+    private String normalizeKnowledgeBaseId(String knowledgeBaseId) {
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return null;
+        }
+        return knowledgeBaseId.trim();
     }
 }

@@ -13,15 +13,20 @@ public class MarkdownIngestionService {
     private final MarkdownChunker markdownChunker;
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
+    private final KnowledgeTraceService knowledgeTraceService;
 
     public MarkdownIngestionService(MarkdownChunker markdownChunker, EmbeddingService embeddingService,
-            VectorStore vectorStore) {
+            VectorStore vectorStore,
+            KnowledgeTraceService knowledgeTraceService) {
         this.markdownChunker = markdownChunker;
         this.embeddingService = embeddingService;
         this.vectorStore = vectorStore;
+        this.knowledgeTraceService = knowledgeTraceService;
     }
 
-    public IngestResult ingestMarkdown(String markdown, String documentId) {
+    public IngestResult ingestMarkdown(String markdown, String documentId, String fileName) {
+        String knowledgeBaseId = "kb-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        String sessionId = "session-" + knowledgeBaseId;
         String docId = (documentId == null || documentId.isBlank()) ? UUID.randomUUID().toString() : documentId;
         List<String> chunks = markdownChunker.split(markdown);
 
@@ -30,10 +35,13 @@ public class MarkdownIngestionService {
         for (String chunk : chunks) {
             String chunkId = docId + "#" + index;
             double[] vector = embeddingService.embed(chunk);
-            vectorStore.upsert(new VectorDocument(chunkId, docId, chunk, vector));
+            vectorStore.upsert(new VectorDocument(chunkId, knowledgeBaseId, docId, chunk, vector));
             index++;
         }
 
-        return new IngestResult(docId, chunks.size(), "markdown ingestion completed");
+        String safeFileName = (fileName == null || fileName.isBlank()) ? "untitled.md" : fileName;
+        knowledgeTraceService.save(knowledgeBaseId, sessionId, docId, safeFileName, chunks.size());
+        return new IngestResult(knowledgeBaseId, sessionId, docId, safeFileName, chunks.size(),
+                "markdown ingestion completed");
     }
 }

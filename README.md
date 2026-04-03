@@ -6,8 +6,10 @@
 
 1. 启动后端后直接访问首页 UI（无需额外前端工程）
 2. 在页面上传 Markdown 文件，自动切片并向量化
-3. 在页面输入问题，接收 SSE 流式回答
-4. 查看回答来源（知识库/联网）、不确定性与 MindMap 调用指令
+3. 每次上传会自动创建独立知识库（KB）和新会话
+4. 页面会保存并展示上传痕迹，可切换历史 KB 继续对话
+5. 在页面输入问题，接收 SSE 流式回答
+6. 查看回答来源（知识库/联网）、不确定性与 MindMap 调用指令
 
 ## 一键准备中间件（Docker）
 
@@ -53,6 +55,25 @@ http://localhost:8080/
 - form-data: `file` (Markdown)
 - form-data: `documentId` (可选)
 
+返回示例（已包含新知识库会话信息）：
+
+```json
+{
+  "knowledgeBaseId": "kb-58c1f1b7c923",
+  "sessionId": "session-kb-58c1f1b7c923",
+  "documentId": "2f4c7d4a-...",
+  "fileName": "manual.md",
+  "chunkCount": 12,
+  "message": "markdown ingestion completed"
+}
+```
+
+### 查询上传痕迹
+
+`GET /api/rag/knowledge-bases`
+
+- 返回历史上传记录（knowledgeBaseId、sessionId、fileName、chunkCount 等）
+
 ### 非流式问答
 
 `POST /api/rag/query`
@@ -61,6 +82,7 @@ http://localhost:8080/
 {
   "question": "什么是 RAG？",
   "sessionId": "u-1001",
+  "knowledgeBaseId": "kb-58c1f1b7c923",
   "topK": 5
 }
 ```
@@ -81,6 +103,13 @@ http://localhost:8080/
 2. `MILVUS_USE_REMOTE`
 3. `MILVUS_BASE_URL`
 4. `MILVUS_COLLECTION`
+5. `LLM_PROVIDER`
+6. `LLM_BASE_URL`
+7. `LLM_API_KEY`
+8. `LLM_MODEL`
+9. `EMBEDDING_MODEL`
+
+其中大模型配置路径位于 `app.rag.llm.*`，可在 `src/main/resources/application.yml` 中直接查看和修改。
 
 默认即对应本机 Docker 端口映射：Redis `6379`，Milvus `19530`。
 

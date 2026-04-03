@@ -20,11 +20,11 @@ public class RetrievalService {
         this.vectorStore = vectorStore;
     }
 
-    public List<RetrievalChunk> retrieve(String question, int topK) {
+    public List<RetrievalChunk> retrieve(String question, int topK, String knowledgeBaseId) {
         int safeTopK = Math.max(1, topK);
         double[] queryVector = embeddingService.embed(question);
         // 先扩大候选池，再执行轻量重排，提高首版检索稳定性。
-        List<RetrievalChunk> candidates = vectorStore.search(queryVector, Math.max(12, safeTopK * 3));
+        List<RetrievalChunk> candidates = vectorStore.search(queryVector, Math.max(12, safeTopK * 3), knowledgeBaseId);
 
         return rerank(question, candidates, safeTopK);
     }

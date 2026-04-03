@@ -8,5 +8,5 @@ import java.util.List;
 public interface VectorStore {
     void upsert(VectorDocument vectorDocument);
 
-    List<RetrievalChunk> search(double[] queryVector, int topK);
+    List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId);
 }

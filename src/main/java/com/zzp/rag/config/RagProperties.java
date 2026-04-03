@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.rag")
 public class RagProperties {
 
+    private final Llm llm = new Llm();
     private final Stream stream = new Stream();
     private final Cache cache = new Cache();
     private final Session session = new Session();
@@ -15,6 +16,10 @@ public class RagProperties {
     private final Chunking chunking = new Chunking();
     private final Milvus milvus = new Milvus();
     private final Mcp mcp = new Mcp();
+
+    public Llm getLlm() {
+        return llm;
+    }
 
     public Stream getStream() {
         return stream;
@@ -57,6 +62,72 @@ public class RagProperties {
 
         public void setChunkSize(int chunkSize) {
             this.chunkSize = chunkSize;
+        }
+    }
+
+    public static class Llm {
+        private String provider = "dashscope";
+        private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+        private String apiKey = "";
+        private String model = "qwen-plus";
+        private String embeddingModel = "text-embedding-v3";
+        private int connectTimeoutMs = 10000;
+        private int readTimeoutMs = 60000;
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public String getEmbeddingModel() {
+            return embeddingModel;
+        }
+
+        public void setEmbeddingModel(String embeddingModel) {
+            this.embeddingModel = embeddingModel;
+        }
+
+        public int getConnectTimeoutMs() {
+            return connectTimeoutMs;
+        }
+
+        public void setConnectTimeoutMs(int connectTimeoutMs) {
+            this.connectTimeoutMs = connectTimeoutMs;
+        }
+
+        public int getReadTimeoutMs() {
+            return readTimeoutMs;
+        }
+
+        public void setReadTimeoutMs(int readTimeoutMs) {
+            this.readTimeoutMs = readTimeoutMs;
         }
     }
 
