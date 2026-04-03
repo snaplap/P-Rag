@@ -64,6 +64,8 @@ services:
     container_name: p-rag-mcp-web-search
     ports:
       - "18080:8080"
+    volumes:
+      - ./docker/mcp-web-search/mappings:/home/wiremock/mappings
     restart: unless-stopped
 
   mcp-diagram:
@@ -71,6 +73,8 @@ services:
     container_name: p-rag-mcp-diagram
     ports:
       - "18081:8080"
+    volumes:
+      - ./docker/mcp-diagram/mappings:/home/wiremock/mappings
     restart: unless-stopped
 
 volumes:

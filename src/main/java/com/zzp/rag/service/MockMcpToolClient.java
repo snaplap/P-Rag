@@ -101,7 +101,7 @@ public class MockMcpToolClient implements McpToolClient {
             payload.put("topK", Math.max(1, topK));
 
             JsonNode root = postJson(ragProperties.getMcp().getWebSearchUrl(), payload);
-            JsonNode resultsNode = root.path("results");
+            JsonNode resultsNode = root.isArray() ? root : root.path("results");
             if (!resultsNode.isArray() || resultsNode.isEmpty()) {
                 return List.of();
             }
@@ -111,6 +111,9 @@ public class MockMcpToolClient implements McpToolClient {
                 String title = node.path("title").asText("");
                 String url = node.path("url").asText("");
                 String snippet = node.path("snippet").asText("");
+                if (snippet.isBlank()) {
+                    snippet = node.path("content").asText("");
+                }
                 double confidence = node.path("confidence").asDouble(0.65d);
                 results.add(new WebSearchResult(title, url, snippet, confidence));
             }
@@ -147,6 +150,9 @@ public class MockMcpToolClient implements McpToolClient {
             }
 
             String imageUrl = root.path("imageUrl").asText("");
+            if (imageUrl.isBlank()) {
+                imageUrl = root.path("diagramUrl").asText("");
+            }
             if (!imageUrl.isBlank()) {
                 arguments.put("imageUrl", imageUrl);
             }

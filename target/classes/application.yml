@@ -7,15 +7,6 @@ spring:
   config:
     # 可在项目根目录 config/application-secrets.yml 写入私有配置，覆盖默认值。
     import: optional:file:./config/application-secrets.yml
-  datasource:
-    url: jdbc:h2:mem:prag;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
   data:
     redis:
       # 容器化部署时可直接通过环境变量覆盖，默认走本机映射端口。
@@ -31,7 +22,7 @@ app:
       # 兼容 OpenAI 协议的网关地址，用户可替换为自有网关。
       base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
       # 大模型 API Key，建议通过环境变量注入，不要硬编码。
-      api-key: ${LLM_API_KEY:}
+      api-key: ${LLM_API_KEY:sk-ecb50de58a154ab69ebc315863980a58}
       # 对话模型名称。
       model: ${LLM_MODEL:deepseek-chat}
       # 向量模型名称。
@@ -62,8 +53,8 @@ app:
       base-url: ${MILVUS_BASE_URL:http://localhost:19530}
     mcp:
       use-mock: ${MCP_USE_MOCK:false}
-      web-search-url: ${MCP_WEB_SEARCH_URL:http://localhost:18080/search}
-      diagram-url: ${MCP_DIAGRAM_URL:http://localhost:18081/diagram}
+      web-search-url: ${MCP_WEB_SEARCH_URL:http://localhost:18080/mcp/web-search/search}
+      diagram-url: ${MCP_DIAGRAM_URL:http://localhost:18081/mcp/diagram}
       call-timeout-ms: ${MCP_CALL_TIMEOUT_MS:6000}
 logging:
   level:

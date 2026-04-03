@@ -268,8 +268,8 @@ public class RagProperties {
 
     public static class Mcp {
         private boolean useMock = true;
-        private String webSearchUrl = "http://localhost:18080/search";
-        private String diagramUrl = "http://localhost:18081/diagram";
+        private String webSearchUrl = "http://localhost:18080/mcp/web-search/search";
+        private String diagramUrl = "http://localhost:18081/mcp/diagram";
         private int callTimeoutMs = 6000;
 
         public boolean isUseMock() {

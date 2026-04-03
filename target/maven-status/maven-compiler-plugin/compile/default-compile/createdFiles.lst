@@ -27,6 +27,7 @@ com\zzp\rag\domain\ConversationTurn.class
 com\zzp\rag\service\McpToolClient.class
 com\zzp\rag\service\MilvusVectorStore$1.class
 com\zzp\rag\domain\VectorDocument.class
+com\zzp\rag\service\KnowledgeTraceService$1.class
 com\zzp\rag\config\RagProperties$Session.class
 com\zzp\rag\service\HashEmbeddingService.class
 com\zzp\rag\config\RagProperties$Chunking.class
