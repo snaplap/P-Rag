@@ -15,9 +15,10 @@ spring:
       path: /h2-console
   data:
     redis:
-      host: localhost
-      port: 6379
-      timeout: 2s
+      # 容器化部署时可直接通过环境变量覆盖，默认走本机映射端口。
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2s}
 
 mybatis:
   configuration:
@@ -43,9 +44,10 @@ app:
       max-chars: 500
       overlap-chars: 80
     milvus:
-      collection: rag_knowledge_chunks
-      use-remote: false
-      base-url: http://localhost:19530
+      collection: ${MILVUS_COLLECTION:rag_knowledge_chunks}
+      # 默认为 true，表示优先使用 Docker 中的 Milvus 服务。
+      use-remote: ${MILVUS_USE_REMOTE:true}
+      base-url: ${MILVUS_BASE_URL:http://localhost:19530}
     mcp:
       use-mock: true
 logging:

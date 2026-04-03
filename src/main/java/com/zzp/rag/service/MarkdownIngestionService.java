@@ -25,6 +25,7 @@ public class MarkdownIngestionService {
         String docId = (documentId == null || documentId.isBlank()) ? UUID.randomUUID().toString() : documentId;
         List<String> chunks = markdownChunker.split(markdown);
 
+        // 分片后逐条向量化并写入向量存储，便于后续语义检索。
         int index = 0;
         for (String chunk : chunks) {
             String chunkId = docId + "#" + index;

@@ -54,6 +54,7 @@ public class RagOrchestratorService {
                 ? ragProperties.getRetrieval().getDefaultTopK()
                 : Math.max(1, request.getTopK());
 
+        // 第一步：缓存优先，命中直接返回。
         Optional<RagAnswer> cacheHit = cacheService.get(question);
         if (cacheHit.isPresent()) {
             RagAnswer answer = cacheHit.get().markCacheHit();
@@ -61,10 +62,12 @@ public class RagOrchestratorService {
             return answer;
         }
 
+        // 第二步：基于必要历史进行向量检索与重排。
         List<ConversationTurn> history = sessionContextService.load(sessionId);
         List<RetrievalChunk> evidence = retrievalService.retrieve(question, topK);
         DataSourceType sourceType = DataSourceType.KNOWLEDGE_BASE;
 
+        // 第三步：无命中或低分时走联网兜底。
         if (evidence.isEmpty() || evidence.get(0).score() < ragProperties.getRetrieval().getMinScore()) {
             evidence = fallbackToWebSearch(question, topK);
             sourceType = DataSourceType.WEB;
@@ -89,6 +92,7 @@ public class RagOrchestratorService {
                 evaluation,
                 mindMapCommand);
 
+        // 第四步：写缓存、写会话记忆、写审计。
         cacheService.put(question, ragAnswer);
         sessionContextService.append(sessionId, new ConversationTurn(question, answerText, Instant.now()));
         qaAuditService.safeInsert(sessionId, question, sourceType, uncertain, false);

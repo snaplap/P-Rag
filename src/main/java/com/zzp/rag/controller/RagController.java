@@ -47,6 +47,7 @@ public class RagController {
 
     @PostMapping("/query")
     public RagAnswer query(@Valid @RequestBody QueryRequest request) {
+        // 非流式接口：用于脚本调试或简单调用。
         return ragOrchestratorService.answer(request);
     }
 
@@ -57,6 +58,7 @@ public class RagController {
         CompletableFuture.runAsync(() -> {
             try {
                 RagAnswer answer = ragOrchestratorService.answer(request);
+                // 先发送文本增量分片，前端可边接收边渲染。
                 for (String chunk : chunk(answer.answer(), ragProperties.getStream().getChunkSize())) {
                     Map<String, Object> payload = new LinkedHashMap<>();
                     payload.put("type", "text");
@@ -74,6 +76,7 @@ public class RagController {
                 finalPayload.put("references", answer.references());
                 finalPayload.put("evaluation", answer.evaluation());
                 finalPayload.put("mindMapCommand", answer.mindMapCommand());
+                // 最终事件包含来源、评估和思维导图调用指令，便于前端一次性收尾展示。
                 emitter.send(SseEmitter.event().name("final").data(finalPayload));
 
                 emitter.complete();
@@ -97,6 +100,7 @@ public class RagController {
     public IngestResult ingestMarkdown(
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "documentId", required = false) String documentId) throws IOException {
+        // 首版仅支持 Markdown，读取后交给摄入服务做切片与向量化。
         String markdown = new String(file.getBytes(), StandardCharsets.UTF_8);
         return markdownIngestionService.ingestMarkdown(markdown, documentId);
     }

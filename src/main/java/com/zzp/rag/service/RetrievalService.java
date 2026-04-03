@@ -23,6 +23,7 @@ public class RetrievalService {
     public List<RetrievalChunk> retrieve(String question, int topK) {
         int safeTopK = Math.max(1, topK);
         double[] queryVector = embeddingService.embed(question);
+        // 先扩大候选池，再执行轻量重排，提高首版检索稳定性。
         List<RetrievalChunk> candidates = vectorStore.search(queryVector, Math.max(12, safeTopK * 3));
 
         return rerank(question, candidates, safeTopK);
@@ -32,6 +33,7 @@ public class RetrievalService {
         List<RetrievalChunk> reranked = new ArrayList<>();
         for (RetrievalChunk candidate : candidates) {
             double overlap = tokenOverlapScore(question, candidate.content());
+            // 向量分数与关键词覆盖度融合，作为首版可解释重排策略。
             double rerankScore = (candidate.score() * 0.7d) + (overlap * 0.3d);
             reranked.add(new RetrievalChunk(
                     candidate.id(),

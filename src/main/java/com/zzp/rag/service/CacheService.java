@@ -36,6 +36,7 @@ public class CacheService {
         String key = buildKey(question);
 
         try {
+            // 优先读取 Redis（生产路径）。
             String raw = redisTemplate.opsForValue().get(key);
             if (raw != null) {
                 return Optional.of(objectMapper.readValue(raw, RagAnswer.class));
@@ -44,6 +45,7 @@ public class CacheService {
             log.warn("Redis read failed, use local cache fallback: {}", ex.getMessage());
         }
 
+        // Redis 不可用时退化到进程内缓存，保证演示和开发场景可继续工作。
         LocalCacheEntry entry = localFallback.get(key);
         if (entry == null) {
             return Optional.empty();
@@ -64,6 +66,7 @@ public class CacheService {
             redisTemplate.opsForValue().set(key, raw, Duration.ofSeconds(ttl));
         } catch (Exception ex) {
             log.warn("Redis write failed, use local cache fallback: {}", ex.getMessage());
+            // 回退缓存同样带 TTL，避免内存无限增长。
             localFallback.put(key, new LocalCacheEntry(answer, System.currentTimeMillis() + (ttl * 1000L)));
         }
     }
