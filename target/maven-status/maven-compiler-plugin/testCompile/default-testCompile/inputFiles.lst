@@ -1,3 +1,3 @@
-D:\Projects\p-rag\src\test\java\com\zzp\MainTest.java
-D:\Projects\p-rag\src\test\java\com\zzp\rag\service\MarkdownChunkerTest.java
-D:\Projects\p-rag\src\test\java\com\zzp\rag\service\RagEvaluationServiceTest.java
+D:\Projects\p-rag\P-Rag\src\test\java\com\zzp\MainTest.java
+D:\Projects\p-rag\P-Rag\src\test\java\com\zzp\rag\service\audit\RagEvaluationServiceTest.java
+D:\Projects\p-rag\P-Rag\src\test\java\com\zzp\rag\service\chunking\MarkdownChunkerTest.java

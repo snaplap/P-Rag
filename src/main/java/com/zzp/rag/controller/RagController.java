@@ -1,12 +1,13 @@
 package com.zzp.rag.controller;
 
 import com.zzp.rag.config.RagProperties;
-import com.zzp.rag.domain.IngestResult;
-import com.zzp.rag.domain.KnowledgeBaseTrace;
-import com.zzp.rag.domain.QueryRequest;
-import com.zzp.rag.domain.RagAnswer;
-import com.zzp.rag.service.KnowledgeTraceService;
-import com.zzp.rag.service.MarkdownIngestionService;
+import com.zzp.rag.domain.dto.IngestResult;
+import com.zzp.rag.domain.trace.KnowledgeBaseTrace;
+import com.zzp.rag.domain.dto.QueryRequest;
+import com.zzp.rag.domain.dto.RagAnswer;
+import com.zzp.rag.domain.model.DataSourceType;
+import com.zzp.rag.service.trace.KnowledgeTraceService;
+import com.zzp.rag.service.chunking.MarkdownIngestionService;
 import com.zzp.rag.service.RagOrchestratorService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -138,7 +139,7 @@ public class RagController {
         return chunks;
     }
 
-    private String sourceLabel(com.zzp.rag.domain.DataSourceType sourceType) {
+    private String sourceLabel(DataSourceType sourceType) {
         if (sourceType == null) {
             return "知识库";
         }

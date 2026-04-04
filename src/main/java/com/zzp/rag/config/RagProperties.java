@@ -76,6 +76,9 @@ public class RagProperties {
         private String apiKey = "";
         private String model = "qwen-plus";
         private String embeddingModel = "text-embedding-v3";
+        private String rerankModel = "gte-rerank-v2";
+        private String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+        private String rerankApiKey = "";
         private int connectTimeoutMs = 10000;
         private int readTimeoutMs = 60000;
 
@@ -117,6 +120,30 @@ public class RagProperties {
 
         public void setEmbeddingModel(String embeddingModel) {
             this.embeddingModel = embeddingModel;
+        }
+
+        public String getRerankModel() {
+            return rerankModel;
+        }
+
+        public void setRerankModel(String rerankModel) {
+            this.rerankModel = rerankModel;
+        }
+
+        public String getRerankUrl() {
+            return rerankUrl;
+        }
+
+        public void setRerankUrl(String rerankUrl) {
+            this.rerankUrl = rerankUrl;
+        }
+
+        public String getRerankApiKey() {
+            return rerankApiKey;
+        }
+
+        public void setRerankApiKey(String rerankApiKey) {
+            this.rerankApiKey = rerankApiKey;
         }
 
         public int getConnectTimeoutMs() {
@@ -188,7 +215,7 @@ public class RagProperties {
     }
 
     public static class Embedding {
-        private int dimension = 128;
+        private int dimension = 1024;
 
         public int getDimension() {
             return dimension;

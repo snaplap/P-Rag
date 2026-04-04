@@ -1,3 +1,3 @@
-com\zzp\rag\service\MarkdownChunkerTest.class
-com\zzp\rag\service\RagEvaluationServiceTest.class
+com\zzp\rag\service\chunking\MarkdownChunkerTest.class
 com\zzp\MainTest.class
+com\zzp\rag\service\audit\RagEvaluationServiceTest.class

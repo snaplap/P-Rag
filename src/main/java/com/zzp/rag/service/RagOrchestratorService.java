@@ -1,14 +1,24 @@
 package com.zzp.rag.service;
 
 import com.zzp.rag.config.RagProperties;
-import com.zzp.rag.domain.ConversationTurn;
-import com.zzp.rag.domain.DataSourceType;
-import com.zzp.rag.domain.MindMapCommand;
-import com.zzp.rag.domain.QueryRequest;
-import com.zzp.rag.domain.RagAnswer;
-import com.zzp.rag.domain.RagEvaluation;
-import com.zzp.rag.domain.RetrievalChunk;
-import com.zzp.rag.domain.WebSearchResult;
+import com.zzp.rag.domain.trace.ConversationTurn;
+import com.zzp.rag.domain.model.DataSourceType;
+import com.zzp.rag.domain.dto.MindMapCommand;
+import com.zzp.rag.domain.dto.QueryRequest;
+import com.zzp.rag.domain.dto.RagAnswer;
+import com.zzp.rag.domain.dto.RagEvaluation;
+import com.zzp.rag.domain.model.RetrievalChunk;
+import com.zzp.rag.domain.dto.WebSearchResult;
+import com.zzp.rag.service.audit.QaAuditService;
+import com.zzp.rag.service.audit.RagEvaluationService;
+import com.zzp.rag.service.audit.RuntimeMetricsService;
+import com.zzp.rag.service.cache.CacheService;
+import com.zzp.rag.service.cache.SessionContextService;
+import com.zzp.rag.service.cache.WebSearchVectorCacheService;
+import com.zzp.rag.service.generation.AnswerGenerationService;
+import com.zzp.rag.service.mcp.McpRoutingDecisionService;
+import com.zzp.rag.service.mcp.McpToolClient;
+import com.zzp.rag.service.retrieval.RetrievalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -74,7 +84,7 @@ public class RagOrchestratorService {
         String cacheQuestion = buildCacheQuestion(question);
 
         try {
-            // 第一步：缓存优先，命中直接返回。
+            // 绗竴姝ワ細缂撳瓨浼樺厛锛屽懡涓洿鎺ヨ繑鍥炪€?
             Optional<RagAnswer> cacheHit = forceFresh ? Optional.empty()
                     : cacheService.get(cacheQuestion, knowledgeBaseId);
             if (!forceFresh && cacheHit.isPresent()) {
@@ -158,7 +168,7 @@ public class RagOrchestratorService {
             RagEvaluation evaluation = ragEvaluationService.evaluate(sourceType, evidence, answerText);
             boolean uncertain = "HIGH".equalsIgnoreCase(evaluation.hallucinationRisk()) || evidence.isEmpty();
             if (uncertain) {
-                answerText = answerText + "\n不确定性声明：当前证据不足，结论仅供参考。\n";
+                answerText = answerText + "\n涓嶇‘瀹氭€у０鏄庯細褰撳墠璇佹嵁涓嶈冻锛岀粨璁轰粎渚涘弬鑰冦€俓n";
             }
 
             MindMapCommand mindMapCommand = null;
@@ -188,7 +198,7 @@ public class RagOrchestratorService {
                     logMetrics,
                     mindMapCommand);
 
-            // 第四步：写缓存、写会话记忆、写审计。
+            // 绗洓姝ワ細鍐欑紦瀛樸€佸啓浼氳瘽璁板繂銆佸啓瀹¤銆?
             if (!uncertain && evidence != null && !evidence.isEmpty()) {
                 cacheService.put(cacheQuestion, knowledgeBaseId, ragAnswer);
             }
