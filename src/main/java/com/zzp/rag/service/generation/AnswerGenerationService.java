@@ -38,13 +38,30 @@ public class AnswerGenerationService {
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
+        return generateAnswerWithDiagnostics(question, history, evidence, sourceType).answer();
+    }
+
+    public GenerationOutcome generateAnswerWithDiagnostics(
+            String question,
+            List<ConversationTurn> history,
+            List<RetrievalChunk> evidence,
+            DataSourceType sourceType) {
         String fallback = fallbackAnswer(question, history, evidence, sourceType);
 
-        String llmAnswer = askLlmIfConfigured(question, history, evidence, sourceType);
+        LlmCallResult llmResult = askLlmIfConfigured(question, history, evidence, sourceType);
+        String llmAnswer = llmResult.answer();
         if (llmAnswer != null && !llmAnswer.isBlank() && !isLowValueAnswer(llmAnswer)) {
-            return llmAnswer.trim();
+            return new GenerationOutcome(llmAnswer.trim(), true, null);
         }
-        return fallback;
+
+        String fallbackReason = llmResult.reasonCode();
+        if (llmAnswer != null && !llmAnswer.isBlank() && isLowValueAnswer(llmAnswer)) {
+            fallbackReason = "LLM_LOW_VALUE_ANSWER";
+        }
+        if (fallbackReason == null || fallbackReason.isBlank()) {
+            fallbackReason = "LLM_UNKNOWN_FALLBACK";
+        }
+        return new GenerationOutcome(fallback, false, fallbackReason);
     }
 
     private String fallbackAnswer(
@@ -89,14 +106,14 @@ public class AnswerGenerationService {
         return builder.toString();
     }
 
-    private String askLlmIfConfigured(
+    private LlmCallResult askLlmIfConfigured(
             String question,
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
         RagProperties.Llm llm = ragProperties.getLlm();
         if (isBlank(llm.getApiKey()) || isBlank(llm.getBaseUrl()) || isBlank(llm.getModel())) {
-            return null;
+            return new LlmCallResult(null, "LLM_NOT_CONFIGURED");
         }
 
         try {
@@ -129,24 +146,24 @@ public class AnswerGenerationService {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 log.warn("LLM response status not success: {}", response.statusCode());
-                return null;
+                return new LlmCallResult(null, "LLM_HTTP_" + response.statusCode());
             }
 
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) {
-                return null;
+                return new LlmCallResult(null, "LLM_EMPTY_CHOICES");
             }
 
             JsonNode contentNode = choices.get(0).path("message").path("content");
             if (contentNode.isMissingNode() || contentNode.isNull()) {
-                return null;
+                return new LlmCallResult(null, "LLM_EMPTY_CONTENT");
             }
             String content = contentNode.asText();
-            return content == null ? null : content.trim();
+            return new LlmCallResult(content == null ? null : content.trim(), null);
         } catch (Exception ex) {
             log.warn("Call LLM failed, fallback template answer: {}", ex.getMessage());
-            return null;
+            return new LlmCallResult(null, "LLM_EXCEPTION");
         }
     }
 
@@ -241,5 +258,11 @@ public class AnswerGenerationService {
             case WEB -> "联网";
             case HYBRID -> "知识库+联网";
         };
+    }
+
+    public record GenerationOutcome(String answer, boolean llmUsed, String fallbackReason) {
+    }
+
+    private record LlmCallResult(String answer, String reasonCode) {
     }
 }

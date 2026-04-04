@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -21,10 +22,13 @@ public class CacheService {
 
     private static final Logger log = LoggerFactory.getLogger(CacheService.class);
 
+    private static final String CACHE_INDEX_PREFIX = "rag:answer:index:";
+
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final RagProperties ragProperties;
     private final Map<String, LocalCacheEntry> localFallback = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> localCacheIndexByKb = new ConcurrentHashMap<>();
 
     public CacheService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, RagProperties ragProperties) {
         this.redisTemplate = redisTemplate;
@@ -52,6 +56,7 @@ public class CacheService {
         }
         if (entry.expiresAtMillis < System.currentTimeMillis()) {
             localFallback.remove(key);
+            untrackLocalKey(entry.normalizedKnowledgeBaseId, key);
             return Optional.empty();
         }
         return Optional.of(entry.value);
@@ -59,23 +64,85 @@ public class CacheService {
 
     public void put(String question, String knowledgeBaseId, RagAnswer answer) {
         String key = buildKey(question, knowledgeBaseId);
+        String normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
         long ttl = Math.max(30L, ragProperties.getCache().getTtlSeconds());
 
         try {
             String raw = objectMapper.writeValueAsString(answer);
             redisTemplate.opsForValue().set(key, raw, Duration.ofSeconds(ttl));
+            redisTemplate.opsForSet().add(buildIndexKey(normalizedKnowledgeBaseId), key);
+            redisTemplate.expire(buildIndexKey(normalizedKnowledgeBaseId), Duration.ofSeconds(ttl));
         } catch (Exception ex) {
             log.warn("Redis write failed, use local cache fallback: {}", ex.getMessage());
             // 鍥為€€缂撳瓨鍚屾牱甯?TTL锛岄伩鍏嶅唴瀛樻棤闄愬闀裤€?
-            localFallback.put(key, new LocalCacheEntry(answer, System.currentTimeMillis() + (ttl * 1000L)));
+            localFallback.put(
+                    key,
+                    new LocalCacheEntry(answer, System.currentTimeMillis() + (ttl * 1000L), normalizedKnowledgeBaseId));
         }
+
+        trackLocalKey(normalizedKnowledgeBaseId, key);
+    }
+
+    public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
+        String normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
+        int removed = 0;
+
+        try {
+            String indexKey = buildIndexKey(normalizedKnowledgeBaseId);
+            Set<String> cacheKeys = redisTemplate.opsForSet().members(indexKey);
+            if (cacheKeys != null && !cacheKeys.isEmpty()) {
+                Long deleted = redisTemplate.delete(cacheKeys);
+                removed += deleted == null ? 0 : deleted.intValue();
+            }
+            redisTemplate.delete(indexKey);
+        } catch (Exception ex) {
+            log.warn("Redis delete by knowledge base failed, use local cache index fallback: {}", ex.getMessage());
+        }
+
+        Set<String> localKeys = localCacheIndexByKb.remove(normalizedKnowledgeBaseId);
+        if (localKeys != null && !localKeys.isEmpty()) {
+            for (String key : localKeys) {
+                if (localFallback.remove(key) != null) {
+                    removed++;
+                }
+            }
+        }
+        return removed;
     }
 
     private String buildKey(String question, String knowledgeBaseId) {
         String normalized = question == null ? "" : question.trim().toLowerCase();
-        String kb = knowledgeBaseId == null ? "global" : knowledgeBaseId.trim().toLowerCase();
+        String kb = normalizeKnowledgeBaseId(knowledgeBaseId);
         String hash = md5Hex(kb + "::" + normalized);
         return ragProperties.getCache().getKeyPrefix() + hash;
+    }
+
+    private String buildIndexKey(String normalizedKnowledgeBaseId) {
+        return CACHE_INDEX_PREFIX + normalizedKnowledgeBaseId;
+    }
+
+    private String normalizeKnowledgeBaseId(String knowledgeBaseId) {
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return "global";
+        }
+        return knowledgeBaseId.trim().toLowerCase();
+    }
+
+    private void trackLocalKey(String normalizedKnowledgeBaseId, String key) {
+        localCacheIndexByKb
+                .computeIfAbsent(normalizedKnowledgeBaseId, ignored -> ConcurrentHashMap.newKeySet())
+                .add(key);
+    }
+
+    private void untrackLocalKey(String normalizedKnowledgeBaseId, String key) {
+        Set<String> keys = localCacheIndexByKb.get(normalizedKnowledgeBaseId);
+        if (keys == null) {
+            return;
+        }
+        keys.remove(key);
+        if (keys.isEmpty()) {
+            localCacheIndexByKb.remove(normalizedKnowledgeBaseId);
+        }
     }
 
     private String md5Hex(String text) {
@@ -88,8 +155,6 @@ public class CacheService {
         }
     }
 
-    private record LocalCacheEntry(RagAnswer value, long expiresAtMillis) {
+    private record LocalCacheEntry(RagAnswer value, long expiresAtMillis, String normalizedKnowledgeBaseId) {
     }
 }
-
-

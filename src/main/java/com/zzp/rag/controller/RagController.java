@@ -2,17 +2,21 @@ package com.zzp.rag.controller;
 
 import com.zzp.rag.config.RagProperties;
 import com.zzp.rag.domain.dto.IngestResult;
+import com.zzp.rag.domain.dto.KnowledgeBaseDeleteResult;
 import com.zzp.rag.domain.trace.KnowledgeBaseTrace;
 import com.zzp.rag.domain.dto.QueryRequest;
 import com.zzp.rag.domain.dto.RagAnswer;
 import com.zzp.rag.domain.model.DataSourceType;
 import com.zzp.rag.service.trace.KnowledgeTraceService;
+import com.zzp.rag.service.KnowledgeBaseManagementService;
 import com.zzp.rag.service.chunking.MarkdownIngestionService;
 import com.zzp.rag.service.RagOrchestratorService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,16 +43,19 @@ public class RagController {
     private final RagOrchestratorService ragOrchestratorService;
     private final MarkdownIngestionService markdownIngestionService;
     private final KnowledgeTraceService knowledgeTraceService;
+    private final KnowledgeBaseManagementService knowledgeBaseManagementService;
     private final RagProperties ragProperties;
 
     public RagController(
             RagOrchestratorService ragOrchestratorService,
             MarkdownIngestionService markdownIngestionService,
             KnowledgeTraceService knowledgeTraceService,
+            KnowledgeBaseManagementService knowledgeBaseManagementService,
             RagProperties ragProperties) {
         this.ragOrchestratorService = ragOrchestratorService;
         this.markdownIngestionService = markdownIngestionService;
         this.knowledgeTraceService = knowledgeTraceService;
+        this.knowledgeBaseManagementService = knowledgeBaseManagementService;
         this.ragProperties = ragProperties;
     }
 
@@ -116,6 +123,11 @@ public class RagController {
     @GetMapping("/knowledge-bases")
     public List<KnowledgeBaseTrace> listKnowledgeBases() {
         return knowledgeTraceService.listAll();
+    }
+
+    @DeleteMapping("/knowledge-bases/{knowledgeBaseId}")
+    public KnowledgeBaseDeleteResult deleteKnowledgeBase(@PathVariable String knowledgeBaseId) {
+        return knowledgeBaseManagementService.deleteKnowledgeBase(knowledgeBaseId);
     }
 
     @GetMapping("/health")

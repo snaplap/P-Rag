@@ -163,7 +163,8 @@
       border: 1px solid #c4dff2;
       border-radius: 12px;
       background: var(--sidebar-item);
-      padding: 10px 10px;
+      position: relative;
+      padding: 10px 34px 10px 10px;
       cursor: pointer;
       transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
     }
@@ -203,6 +204,39 @@
       border-radius: 9px;
       padding: 7px 8px;
       line-height: 1.45;
+    }
+
+    .kb-delete-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border: 1px solid #b7d7ec;
+      border-radius: 50%;
+      background: #f8fcff;
+      color: #7b9ab0;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.9);
+      transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+    }
+
+    .kb-item:hover .kb-delete-btn,
+    .kb-item.active .kb-delete-btn {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .kb-delete-btn:hover {
+      background: #ffeef0;
+      color: #c23648;
+      border-color: #efbdc4;
     }
 
     .main {
@@ -944,6 +978,17 @@
         "<div class='kb-meta'>KB: " + escapeHtml(trace.knowledgeBaseId) + "</div>"
       ].join("");
 
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "kb-delete-btn";
+      deleteBtn.title = "删除知识库";
+      deleteBtn.textContent = "×";
+      deleteBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteKnowledgeBase(trace.knowledgeBaseId);
+      });
+      item.appendChild(deleteBtn);
+
       item.addEventListener("click", () => switchKnowledge(trace.knowledgeBaseId));
       kbList.appendChild(item);
     });
@@ -968,6 +1013,58 @@
     currentHistory = readHistory(active.knowledgeBaseId);
     renderChatHistory(currentHistory);
     resetMinorHint();
+  }
+
+  async function deleteKnowledgeBase(knowledgeBaseId) {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    const trace = traces.find((t) => t.knowledgeBaseId === knowledgeBaseId);
+    const displayName = trace && trace.fileName ? trace.fileName : knowledgeBaseId;
+    const confirmed = window.confirm("此操作将会删除知识库和对话记录，确认删除吗？\n\n" + displayName);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/rag/knowledge-bases/" + encodeURIComponent(knowledgeBaseId), {
+        method: "DELETE"
+      });
+
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (_) {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload && payload.error ? payload.error : "删除失败，状态码 " + response.status);
+      }
+
+      localStorage.removeItem(historyKey(knowledgeBaseId));
+      delete logMetricsByKnowledgeBase[knowledgeBaseId];
+
+      if (active && active.knowledgeBaseId === knowledgeBaseId) {
+        active = null;
+        currentHistory = [];
+        chatWrap.innerHTML = "";
+        activeName.textContent = "请先上传 Markdown 文件开始对话";
+      }
+
+      minorHint.textContent = "知识库删除成功";
+      minorHint.className = "";
+      await loadKnowledgeBases();
+      renderLogMetricsPanel();
+
+      if (!active && traces.length === 0) {
+        appendMessage("assistant", "该知识库已删除。请上传新的 Markdown 文件开始对话。", "");
+      }
+    } catch (error) {
+      minorHint.textContent = "删除失败: " + (error.message || "未知错误");
+      minorHint.className = "error";
+    }
   }
 
   async function sendQuestion() {
@@ -999,6 +1096,55 @@
     const assistantNode = appendMessage("assistant", "", "");
     let streamedChunks = 0;
 
+    const handleStreamEvent = (evt) => {
+      if (evt.name === "chunk") {
+        const payload = safeJson(evt.data);
+        if (payload && payload.content) {
+          assistantMessage.text += payload.content;
+          currentHistory[currentHistory.length - 1] = { ...assistantMessage };
+          updateMessageNode(assistantNode, assistantMessage);
+          streamedChunks++;
+          if (streamedChunks % 8 === 0) {
+            currentHistory = normalizeHistory(currentHistory);
+            saveHistory(active.knowledgeBaseId, currentHistory);
+          }
+        }
+      }
+
+      if (evt.name === "final") {
+        const payload = safeJson(evt.data);
+        if (payload) {
+          assistantMessage.source = payload.source || "知识库";
+          currentHistory[currentHistory.length - 1] = { ...assistantMessage };
+          if (payload.uncertain) {
+            minorHint.textContent = "当前回答存在不确定性，可补充文档后再试";
+            minorHint.className = "warn";
+          }
+          if (payload.mindMapCommand) {
+            const rendered = appendMindMapImage(payload.mindMapCommand);
+            if (rendered) {
+              if (!payload.uncertain) {
+                minorHint.textContent = "已触发思维导图生成";
+                minorHint.className = "";
+              }
+            } else {
+              minorHint.textContent = "导图指令已返回，但未提供可渲染图片地址";
+              minorHint.className = "warn";
+            }
+          }
+          if (payload.logMetrics && active && active.knowledgeBaseId) {
+            logMetricsByKnowledgeBase[active.knowledgeBaseId] = payload.logMetrics;
+            renderLogMetricsPanel();
+          }
+          updateMessageNode(assistantNode, assistantMessage);
+        }
+      }
+
+      if (evt.name === "error") {
+        throw new Error("服务端流式错误");
+      }
+    };
+
     try {
       const response = await fetch("/api/rag/query/stream", {
         method: "POST",
@@ -1027,61 +1173,23 @@
         }
 
         buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
+        const drained = splitSseBuffer(buffer);
+        buffer = drained.rest;
 
-        for (const eventText of events) {
+        for (const eventText of drained.events) {
           const evt = parseSse(eventText);
           if (!evt) {
             continue;
           }
+          handleStreamEvent(evt);
+        }
+      }
 
-          if (evt.name === "chunk") {
-            const payload = safeJson(evt.data);
-            if (payload && payload.content) {
-              assistantMessage.text += payload.content;
-              currentHistory[currentHistory.length - 1] = { ...assistantMessage };
-              updateMessageNode(assistantNode, assistantMessage);
-              streamedChunks++;
-              if (streamedChunks % 8 === 0) {
-                currentHistory = normalizeHistory(currentHistory);
-                saveHistory(active.knowledgeBaseId, currentHistory);
-              }
-            }
-          }
-
-          if (evt.name === "final") {
-            const payload = safeJson(evt.data);
-            if (payload) {
-              assistantMessage.source = payload.source || "知识库";
-              currentHistory[currentHistory.length - 1] = { ...assistantMessage };
-              if (payload.uncertain) {
-                minorHint.textContent = "当前回答存在不确定性，可补充文档后再试";
-                minorHint.className = "warn";
-              }
-              if (payload.mindMapCommand) {
-                const rendered = appendMindMapImage(payload.mindMapCommand);
-                if (rendered) {
-                  if (!payload.uncertain) {
-                    minorHint.textContent = "已触发思维导图生成";
-                    minorHint.className = "";
-                  }
-                } else {
-                  minorHint.textContent = "导图指令已返回，但未提供可渲染图片地址";
-                  minorHint.className = "warn";
-                }
-              }
-              if (payload.logMetrics && active && active.knowledgeBaseId) {
-                logMetricsByKnowledgeBase[active.knowledgeBaseId] = payload.logMetrics;
-                renderLogMetricsPanel();
-              }
-              updateMessageNode(assistantNode, assistantMessage);
-            }
-          }
-
-          if (evt.name === "error") {
-            throw new Error("服务端流式错误");
-          }
+      const trailing = buffer.trim();
+      if (trailing) {
+        const evt = parseSse(trailing);
+        if (evt) {
+          handleStreamEvent(evt);
         }
       }
     } catch (error) {
@@ -1212,6 +1320,18 @@
       return null;
     }
     return { name, data: data.join("\n") };
+  }
+
+  function splitSseBuffer(rawBuffer) {
+    const normalized = String(rawBuffer || "").replace(/\r\n/g, "\n");
+    const parts = normalized.split("\n\n");
+    if (parts.length <= 1) {
+      return { events: [], rest: normalized };
+    }
+    return {
+      events: parts.slice(0, -1),
+      rest: parts[parts.length - 1] || ""
+    };
   }
 
   function safeJson(text) {

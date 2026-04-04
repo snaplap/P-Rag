@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,6 +118,8 @@ public class RagOrchestratorService {
                             0L,
                             0L,
                             true);
+                    attachChainDiagnostics(logMetrics, true, "CACHE_HIT", false, McpRoutingDecisionService.Route.RAG,
+                            "served-from-cache");
 
                     RagAnswer answer = new RagAnswer(
                             cached.question(),
@@ -144,14 +147,19 @@ public class RagOrchestratorService {
             List<ConversationTurn> history = sessionContextService.load(sessionId);
             List<RetrievalChunk> evidence;
             DataSourceType sourceType;
+            boolean mcpSearchFallback = false;
 
             if (decision.route() == McpRoutingDecisionService.Route.MCP) {
-                List<RetrievalChunk> webEvidence = fallbackToWebSearch(question, topK);
+                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(question, topK);
+                List<RetrievalChunk> webEvidence = webEvidenceResult.chunks();
+                mcpSearchFallback = webEvidenceResult.fallbackUsed();
                 webSearchVectorCacheService.cache(question, webEvidence);
                 evidence = webEvidence.isEmpty() ? kbEvidence : webEvidence;
                 sourceType = webEvidence.isEmpty() ? DataSourceType.KNOWLEDGE_BASE : DataSourceType.WEB;
             } else if (decision.route() == McpRoutingDecisionService.Route.RAG_MCP) {
-                List<RetrievalChunk> webEvidence = fallbackToWebSearch(question, topK);
+                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(question, topK);
+                List<RetrievalChunk> webEvidence = webEvidenceResult.chunks();
+                mcpSearchFallback = webEvidenceResult.fallbackUsed();
                 webSearchVectorCacheService.cache(question, webEvidence);
                 evidence = mergeEvidence(kbEvidence, webEvidence, topK);
                 sourceType = webEvidence.isEmpty() ? DataSourceType.KNOWLEDGE_BASE : DataSourceType.HYBRID;
@@ -162,7 +170,9 @@ public class RagOrchestratorService {
             long retrievalMs = Math.max(0L, (System.nanoTime() - retrievalStart) / 1_000_000L);
 
             long generationStart = System.nanoTime();
-            String answerText = answerGenerationService.generateAnswer(question, history, evidence, sourceType);
+            AnswerGenerationService.GenerationOutcome generationOutcome = answerGenerationService
+                    .generateAnswerWithDiagnostics(question, history, evidence, sourceType);
+            String answerText = generationOutcome.answer();
             long generationMs = Math.max(0L, (System.nanoTime() - generationStart) / 1_000_000L);
 
             RagEvaluation evaluation = ragEvaluationService.evaluate(sourceType, evidence, answerText);
@@ -186,6 +196,13 @@ public class RagOrchestratorService {
                     retrievalMs,
                     generationMs,
                     false);
+            attachChainDiagnostics(
+                    logMetrics,
+                    generationOutcome.llmUsed(),
+                    generationOutcome.fallbackReason(),
+                    mcpSearchFallback,
+                    decision.route(),
+                    decision.reason());
 
             RagAnswer ragAnswer = new RagAnswer(
                     question,
@@ -236,7 +253,7 @@ public class RagOrchestratorService {
         return merged.subList(0, limit);
     }
 
-    private List<RetrievalChunk> fallbackToWebSearch(String question, int topK) {
+    private WebEvidenceResult fallbackToWebSearch(String question, int topK) {
         List<WebSearchResult> webResults = mcpToolClient.searchWeb(question, topK);
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (int i = 0; i < webResults.size(); i++) {
@@ -248,7 +265,34 @@ public class RagOrchestratorService {
                     web.confidence(),
                     DataSourceType.WEB));
         }
-        return chunks;
+        return new WebEvidenceResult(chunks, isMockWebSearchResult(webResults));
+    }
+
+    private boolean isMockWebSearchResult(List<WebSearchResult> webResults) {
+        if (webResults == null || webResults.isEmpty()) {
+            return false;
+        }
+        return webResults.stream().allMatch(v -> {
+            String url = v.url() == null ? "" : v.url();
+            String snippet = v.snippet() == null ? "" : v.snippet();
+            return url.contains("example.com/search") || snippet.contains("联网检索模拟结果");
+        });
+    }
+
+    private void attachChainDiagnostics(
+            Map<String, Object> logMetrics,
+            boolean llmUsed,
+            String llmFallbackReason,
+            boolean mcpSearchFallback,
+            McpRoutingDecisionService.Route route,
+            String routeReason) {
+        Map<String, Object> chain = new LinkedHashMap<>();
+        chain.put("LLM已使用", llmUsed ? "是" : "否");
+        chain.put("LLM回退原因", llmFallbackReason == null || llmFallbackReason.isBlank() ? "-" : llmFallbackReason);
+        chain.put("MCP检索回退", mcpSearchFallback ? "是" : "否");
+        chain.put("MCP路由", route == null ? "-" : route.name());
+        chain.put("MCP决策依据", routeReason == null || routeReason.isBlank() ? "-" : routeReason);
+        logMetrics.put("链路诊断", chain);
     }
 
     private String normalizeSessionId(String sessionId) {
@@ -263,5 +307,8 @@ public class RagOrchestratorService {
             return null;
         }
         return knowledgeBaseId.trim();
+    }
+
+    private record WebEvidenceResult(List<RetrievalChunk> chunks, boolean fallbackUsed) {
     }
 }

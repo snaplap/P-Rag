@@ -9,6 +9,6 @@ public interface VectorStore {
     void upsert(VectorDocument vectorDocument);
 
     List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId);
+
+    int deleteByKnowledgeBaseId(String knowledgeBaseId);
 }
-
-

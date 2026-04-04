@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -50,6 +51,52 @@ public class QaAuditService {
             }
         }
     }
+
+    public int deleteBySessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return 0;
+        }
+        String normalized = sessionId.trim();
+        int removed = 0;
+
+        try {
+            List<String> list = redisTemplate.opsForList().range(AUDIT_KEY, 0, MAX_AUDIT_SIZE - 1L);
+            if (list != null && !list.isEmpty()) {
+                List<String> kept = list.stream().filter(raw -> {
+                    if (isAuditRecordForSession(raw, normalized)) {
+                        return false;
+                    }
+                    return true;
+                }).toList();
+
+                removed += Math.max(0, list.size() - kept.size());
+                if (removed > 0) {
+                    redisTemplate.delete(AUDIT_KEY);
+                    if (!kept.isEmpty()) {
+                        redisTemplate.opsForList().rightPushAll(AUDIT_KEY, kept);
+                        redisTemplate.opsForList().trim(AUDIT_KEY, 0, MAX_AUDIT_SIZE - 1L);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to delete qa audit records from redis: {}", ex.getMessage());
+        }
+
+        int before = localFallback.size();
+        localFallback.removeIf(raw -> isAuditRecordForSession(raw, normalized));
+        removed += Math.max(0, before - localFallback.size());
+        return removed;
+    }
+
+    private boolean isAuditRecordForSession(String raw, String sessionId) {
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        try {
+            String recordSessionId = objectMapper.readTree(raw).path("sessionId").asText("");
+            return sessionId.equals(recordSessionId);
+        } catch (Exception ignored) {
+            return raw.contains("sessionId=" + sessionId) || raw.contains("\"sessionId\":\"" + sessionId + "\"");
+        }
+    }
 }
-
-

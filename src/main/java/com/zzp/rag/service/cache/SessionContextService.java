@@ -83,10 +83,29 @@ public class SessionContextService {
         }
     }
 
+    public int deleteSession(String sessionId) {
+        String key = buildKey(sessionId);
+        int removed = 0;
+
+        try {
+            Long size = redisTemplate.opsForList().size(key);
+            Boolean deleted = redisTemplate.delete(key);
+            if (Boolean.TRUE.equals(deleted)) {
+                removed += size == null ? 0 : size.intValue();
+            }
+        } catch (Exception ex) {
+            log.warn("Redis session delete failed, use local session fallback: {}", ex.getMessage());
+        }
+
+        Deque<ConversationTurn> deque = localSessions.remove(key);
+        if (deque != null) {
+            removed += deque.size();
+        }
+        return removed;
+    }
+
     private String buildKey(String sessionId) {
         String sid = (sessionId == null || sessionId.isBlank()) ? "anonymous" : sessionId.trim();
         return ragProperties.getSession().getKeyPrefix() + sid;
     }
 }
-
-

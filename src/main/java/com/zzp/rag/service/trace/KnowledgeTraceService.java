@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -82,6 +83,57 @@ public class KnowledgeTraceService {
                 .filter(v -> normalized.equals(v.knowledgeBaseId()))
                 .findFirst();
     }
+
+    public Optional<KnowledgeBaseTrace> deleteByKnowledgeBaseId(String knowledgeBaseId) {
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return Optional.empty();
+        }
+
+        String normalized = knowledgeBaseId.trim();
+        Optional<KnowledgeBaseTrace> deleted = Optional.empty();
+
+        try {
+            List<String> list = redisTemplate.opsForList().range(TRACE_KEY, 0, MAX_TRACE_SIZE - 1L);
+            if (list != null && !list.isEmpty()) {
+                List<String> kept = new ArrayList<>();
+                for (String raw : list) {
+                    KnowledgeBaseTrace trace = parseTrace(raw);
+                    if (trace != null && normalized.equals(trace.knowledgeBaseId())) {
+                        if (deleted.isEmpty()) {
+                            deleted = Optional.of(trace);
+                        }
+                    } else {
+                        kept.add(raw);
+                    }
+                }
+
+                if (kept.size() != list.size()) {
+                    redisTemplate.delete(TRACE_KEY);
+                    if (!kept.isEmpty()) {
+                        redisTemplate.opsForList().rightPushAll(TRACE_KEY, kept);
+                        redisTemplate.opsForList().trim(TRACE_KEY, 0, MAX_TRACE_SIZE - 1L);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to delete knowledge upload traces from redis: {}", ex.getMessage());
+        }
+
+        Optional<KnowledgeBaseTrace> localDeleted = localFallback.stream()
+                .filter(v -> normalized.equals(v.knowledgeBaseId()))
+                .findFirst();
+        localFallback.removeIf(v -> normalized.equals(v.knowledgeBaseId()));
+
+        return deleted.isPresent() ? deleted : localDeleted;
+    }
+
+    private KnowledgeBaseTrace parseTrace(String raw) {
+        try {
+            return objectMapper.readValue(raw, new TypeReference<KnowledgeBaseTrace>() {
+            });
+        } catch (Exception parseEx) {
+            log.warn("Failed to parse knowledge trace: {}", parseEx.getMessage());
+            return null;
+        }
+    }
 }
-
-

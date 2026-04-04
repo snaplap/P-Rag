@@ -81,6 +81,41 @@ public class MilvusVectorStore implements VectorStore {
                 .toList();
     }
 
+    @Override
+    public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return 0;
+        }
+
+        String normalized = knowledgeBaseId.trim();
+        int localDeleted = deleteFromLocalIndex(normalized);
+
+        if (ragProperties.getMilvus().isUseRemote()) {
+            deleteFromRemoteSafely(normalized);
+        }
+        return localDeleted;
+    }
+
+    private int deleteFromLocalIndex(String knowledgeBaseId) {
+        int before = localIndex.size();
+        localIndex.entrySet().removeIf(entry -> knowledgeBaseId.equals(entry.getValue().knowledgeBaseId()));
+        return Math.max(0, before - localIndex.size());
+    }
+
+    private void deleteFromRemoteSafely(String knowledgeBaseId) {
+        try {
+            ensureRemoteCollection();
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("collectionName", ragProperties.getMilvus().getCollection());
+            payload.put("filter", "knowledgeBaseId == \"" + escapeFilterValue(knowledgeBaseId) + "\"");
+
+            postMilvus("/v2/vectordb/entities/delete", payload);
+        } catch (Exception ex) {
+            log.warn("Remote Milvus delete failed, local index already cleaned: {}", ex.getMessage());
+        }
+    }
+
     private void pushToRemoteSafely(VectorDocument vectorDocument) {
         try {
             ensureRemoteCollection();
@@ -159,6 +194,10 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    private String escapeFilterValue(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
     private void ensureRemoteCollection() throws Exception {
         if (remoteCollectionReady) {
             return;
@@ -225,5 +264,3 @@ public class MilvusVectorStore implements VectorStore {
         return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 }
-
-
