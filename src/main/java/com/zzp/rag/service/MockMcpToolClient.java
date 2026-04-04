@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 @Component
 public class MockMcpToolClient implements McpToolClient {
@@ -81,7 +82,7 @@ public class MockMcpToolClient implements McpToolClient {
         arguments.put("source", sourceType.name());
         arguments.put("summary", safeSnippet(answer));
         arguments.put("evidenceCount", evidence == null ? 0 : evidence.size());
-        arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType));
+        arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
 
         return new MindMapCommand("mindmap.generate", arguments);
     }
@@ -157,7 +158,7 @@ public class MockMcpToolClient implements McpToolClient {
                 arguments.put("imageUrl", imageUrl);
             }
             if (!arguments.containsKey("imageUrl")) {
-                arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType));
+                arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
             }
             return new MindMapCommand(tool, arguments);
         } catch (Exception ex) {
@@ -185,32 +186,201 @@ public class MockMcpToolClient implements McpToolClient {
         return objectMapper.readTree(response.body());
     }
 
-    private String buildSvgMindMapDataUrl(String question, String answer, DataSourceType sourceType) {
-        String topic = xmlEscape(limit(question, 28));
-        String summary = xmlEscape(limit(safeSnippet(answer), 56));
+    private String buildSvgMindMapDataUrl(
+            String question,
+            String answer,
+            DataSourceType sourceType,
+            List<RetrievalChunk> evidence) {
+        String topic = xmlEscape(limit(question, 20));
         String source = xmlEscape(sourceType == null ? "UNKNOWN" : sourceType.name());
+        List<MindBranch> branches = buildMindMapBranches(answer, evidence);
 
-        String svg = "<svg xmlns='http://www.w3.org/2000/svg' width='960' height='540'>"
-                + "<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
-                + "<stop offset='0%' stop-color='#e8f6ff'/><stop offset='100%' stop-color='#cde9fb'/></linearGradient></defs>"
-                + "<rect width='960' height='540' fill='url(#g)'/>"
-                + "<rect x='350' y='46' width='260' height='68' rx='14' fill='#ffffff' stroke='#68b4df' stroke-width='2'/>"
-                + "<text x='480' y='86' text-anchor='middle' fill='#1d5b7f' font-size='24' font-family='Arial'>"
-                + topic + "</text>"
-                + "<line x1='480' y1='114' x2='230' y2='230' stroke='#5ba8d4' stroke-width='3'/>"
-                + "<line x1='480' y1='114' x2='730' y2='230' stroke='#5ba8d4' stroke-width='3'/>"
-                + "<rect x='120' y='210' width='230' height='120' rx='12' fill='#ffffff' stroke='#8ec7e6'/>"
-                + "<text x='235' y='248' text-anchor='middle' fill='#2a678c' font-size='18' font-family='Arial'>来源</text>"
-                + "<text x='235' y='282' text-anchor='middle' fill='#2a678c' font-size='16' font-family='Arial'>"
-                + source + "</text>"
-                + "<rect x='610' y='210' width='230' height='120' rx='12' fill='#ffffff' stroke='#8ec7e6'/>"
-                + "<text x='725' y='248' text-anchor='middle' fill='#2a678c' font-size='18' font-family='Arial'>摘要</text>"
-                + "<text x='725' y='282' text-anchor='middle' fill='#2a678c' font-size='14' font-family='Arial'>"
-                + summary + "</text>"
-                + "</svg>";
+        int[][] branchBox = {
+                { 90, 188 },
+                { 670, 188 },
+                { 380, 332 }
+        };
+        int[][][] childBox = {
+                { { 24, 300 }, { 230, 300 } },
+                { { 604, 300 }, { 810, 300 } },
+                { { 314, 444 }, { 520, 444 } }
+        };
 
-        String encoded = Base64.getEncoder().encodeToString(svg.getBytes(StandardCharsets.UTF_8));
+        StringBuilder svg = new StringBuilder();
+        svg.append("<svg xmlns='http://www.w3.org/2000/svg' width='980' height='580'>")
+                .append("<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>")
+                .append("<stop offset='0%' stop-color='#eef9ff'/><stop offset='100%' stop-color='#d6efff'/></linearGradient></defs>")
+                .append("<rect width='980' height='580' fill='url(#g)'/>");
+
+        appendNode(svg, 350, 42, 280, 66, topic, 22, "#ffffff", "#5fa9d6", "#194f72");
+        appendText(svg, 36, 548, "来源: " + source, 14, "#356789", "start");
+
+        for (int i = 0; i < 3; i++) {
+            MindBranch branch = branches.get(i);
+            int bx = branchBox[i][0];
+            int by = branchBox[i][1];
+
+            appendLine(svg, 490, 108, bx + 100, by, "#4f9dcc", 2.8d);
+            appendNode(svg, bx, by, 200, 56, xmlEscape(limit(branch.title(), 12)), 17, "#ffffff", "#7cbce3", "#1f5f86");
+
+            int leftChildX = childBox[i][0][0];
+            int leftChildY = childBox[i][0][1];
+            int rightChildX = childBox[i][1][0];
+            int rightChildY = childBox[i][1][1];
+
+            appendLine(svg, bx + 100, by + 56, leftChildX + 74, leftChildY, "#7db5d9", 2.2d);
+            appendLine(svg, bx + 100, by + 56, rightChildX + 74, rightChildY, "#7db5d9", 2.2d);
+            appendNode(svg, leftChildX, leftChildY, 148, 48, xmlEscape(limit(branch.leftLeaf(), 16)), 13, "#f9fdff",
+                    "#b8daf0", "#2d5f80");
+            appendNode(svg, rightChildX, rightChildY, 148, 48, xmlEscape(limit(branch.rightLeaf(), 16)), 13, "#f9fdff",
+                    "#b8daf0", "#2d5f80");
+        }
+
+        svg.append("</svg>");
+        String encoded = Base64.getEncoder().encodeToString(svg.toString().getBytes(StandardCharsets.UTF_8));
         return "data:image/svg+xml;base64," + encoded;
+    }
+
+    private List<MindBranch> buildMindMapBranches(String answer, List<RetrievalChunk> evidence) {
+        List<String> candidates = new ArrayList<>();
+
+        if (answer != null && !answer.isBlank()) {
+            String[] lines = answer.split("\\r?\\n");
+            for (String line : lines) {
+                String normalized = normalizeNodeText(line);
+                if (!normalized.isBlank()) {
+                    candidates.add(normalized);
+                }
+            }
+        }
+
+        if (evidence != null) {
+            for (int i = 0; i < Math.min(2, evidence.size()); i++) {
+                RetrievalChunk chunk = evidence.get(i);
+                if (chunk == null || chunk.content() == null) {
+                    continue;
+                }
+                String[] parts = chunk.content().split("[。；;\\n]");
+                for (String part : parts) {
+                    String normalized = normalizeNodeText(part);
+                    if (!normalized.isBlank()) {
+                        candidates.add(normalized);
+                    }
+                    if (candidates.size() >= 20) {
+                        break;
+                    }
+                }
+                if (candidates.size() >= 20) {
+                    break;
+                }
+            }
+        }
+
+        List<String> unique = candidates.stream()
+                .map(v -> v.toLowerCase(Locale.ROOT))
+                .distinct()
+                .map(v -> v.replace("\u0000", ""))
+                .toList();
+
+        List<String> readable = new ArrayList<>();
+        for (String item : unique) {
+            if (item == null || item.isBlank()) {
+                continue;
+            }
+            readable.add(item);
+            if (readable.size() >= 12) {
+                break;
+            }
+        }
+
+        if (readable.isEmpty()) {
+            readable = List.of("主题背景", "关键要点", "结论建议", "核心信息", "应用场景", "风险提示");
+        }
+
+        List<MindBranch> branches = new ArrayList<>();
+        branches.add(new MindBranch(
+                pick(readable, 0, "主题背景"),
+                pick(readable, 3, "背景说明"),
+                pick(readable, 4, "上下文")));
+        branches.add(new MindBranch(
+                pick(readable, 1, "关键要点"),
+                pick(readable, 5, "核心内容"),
+                pick(readable, 6, "细节补充")));
+        branches.add(new MindBranch(
+                pick(readable, 2, "结论建议"),
+                pick(readable, 7, "风险提示"),
+                pick(readable, 8, "后续行动")));
+        return branches;
+    }
+
+    private String pick(List<String> candidates, int index, String fallback) {
+        if (candidates == null || index < 0 || index >= candidates.size()) {
+            return fallback;
+        }
+        String value = candidates.get(index);
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String normalizeNodeText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String normalized = text
+                .replaceAll("`", "")
+                .replaceAll("^[-*#>\\d.\\s]+", "")
+                .replaceAll("\\[[^]]+\\]\\([^)]+\\)", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        if (normalized.length() < 2) {
+            return "";
+        }
+        return limit(normalized, 20);
+    }
+
+    private void appendLine(StringBuilder svg, int x1, int y1, int x2, int y2, String color, double width) {
+        svg.append("<line x1='").append(x1)
+                .append("' y1='").append(y1)
+                .append("' x2='").append(x2)
+                .append("' y2='").append(y2)
+                .append("' stroke='").append(color)
+                .append("' stroke-width='").append(width)
+                .append("'/>");
+    }
+
+    private void appendNode(
+            StringBuilder svg,
+            int x,
+            int y,
+            int w,
+            int h,
+            String text,
+            int fontSize,
+            String fill,
+            String stroke,
+            String fontColor) {
+        svg.append("<rect x='").append(x)
+                .append("' y='").append(y)
+                .append("' width='").append(w)
+                .append("' height='").append(h)
+                .append("' rx='12' fill='").append(fill)
+                .append("' stroke='").append(stroke)
+                .append("' stroke-width='1.8'/>");
+        appendText(svg, x + (w / 2), y + (h / 2) + 5, text, fontSize, fontColor, "middle");
+    }
+
+    private void appendText(StringBuilder svg, int x, int y, String text, int size, String color, String anchor) {
+        svg.append("<text x='").append(x)
+                .append("' y='").append(y)
+                .append("' text-anchor='").append(anchor)
+                .append("' fill='").append(color)
+                .append("' font-size='").append(size)
+                .append("' font-family='Arial'>")
+                .append(text)
+                .append("</text>");
+    }
+
+    private record MindBranch(String title, String leftLeaf, String rightLeaf) {
     }
 
     private String limit(String text, int maxLen) {

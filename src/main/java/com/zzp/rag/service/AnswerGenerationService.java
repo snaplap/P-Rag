@@ -83,6 +83,8 @@ public class AnswerGenerationService {
 
         if (sourceType == DataSourceType.WEB) {
             builder.append("\n以上回答来自已检索到的公开资料。\n");
+        } else if (sourceType == DataSourceType.HYBRID) {
+            builder.append("\n以上回答综合了知识库与联网检索信息。\n");
         }
         return builder.toString();
     }
@@ -162,7 +164,7 @@ public class AnswerGenerationService {
                 .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
                 .append("回答格式使用 Markdown，结构清晰，必要时使用列表。")
                 .append("来源类型=")
-                .append(sourceType == DataSourceType.KNOWLEDGE_BASE ? "知识库" : "联网");
+                .append(labelSource(sourceType));
 
         messages.add(Map.of("role", "system", "content", systemPrompt.toString()));
 
@@ -228,6 +230,16 @@ public class AnswerGenerationService {
         return normalized.contains("没有提供任何实质性的文章信息或摘要")
                 || normalized.contains("未提供任何实质性的文章信息或摘要")
                 || normalized.contains("没有提供文章信息")
-                || normalized.contains("无法根据提供的内容回答");
+                || normalized.contains("无法根据提供的内容回答")
+                || normalized.contains("无法确定这篇文章的具体内容")
+                || normalized.contains("无法确定文章具体内容");
+    }
+
+    private String labelSource(DataSourceType sourceType) {
+        return switch (sourceType) {
+            case KNOWLEDGE_BASE -> "知识库";
+            case WEB -> "联网";
+            case HYBRID -> "知识库+联网";
+        };
     }
 }

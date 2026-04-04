@@ -1,6 +1,7 @@
 package com.zzp.rag.domain;
 
 import java.util.List;
+import java.util.Map;
 
 public record RagAnswer(
         String question,
@@ -10,6 +11,7 @@ public record RagAnswer(
         boolean cacheHit,
         List<RetrievalChunk> references,
         RagEvaluation evaluation,
+        Map<String, Object> logMetrics,
         MindMapCommand mindMapCommand) {
     public RagAnswer markCacheHit() {
         return new RagAnswer(
@@ -20,6 +22,7 @@ public record RagAnswer(
                 true,
                 this.references,
                 this.evaluation,
+                this.logMetrics,
                 this.mindMapCommand);
     }
 }

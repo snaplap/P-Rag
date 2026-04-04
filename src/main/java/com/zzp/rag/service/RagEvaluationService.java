@@ -12,7 +12,8 @@ public class RagEvaluationService {
 
     public RagEvaluation evaluate(DataSourceType sourceType, List<RetrievalChunk> evidence, String answer) {
         int evidenceCount = evidence == null ? 0 : evidence.size();
-        boolean knowledgeHit = sourceType == DataSourceType.KNOWLEDGE_BASE && evidenceCount > 0;
+        boolean knowledgeHit = (sourceType == DataSourceType.KNOWLEDGE_BASE || sourceType == DataSourceType.HYBRID)
+                && evidenceCount > 0;
         String risk;
         if (evidenceCount == 0) {
             risk = "HIGH";
@@ -28,6 +29,8 @@ public class RagEvaluationService {
             note = "未找到可追溯证据，存在较高幻觉风险。";
         } else if (sourceType == DataSourceType.WEB) {
             note = "回答基于联网检索结果，请在生产环境做来源可信度校验。";
+        } else if (sourceType == DataSourceType.HYBRID) {
+            note = "回答综合了知识库与联网检索证据，请重点核对外部来源时效性。";
         } else {
             note = "回答可回溯到知识库检索片段。";
         }

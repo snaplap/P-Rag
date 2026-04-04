@@ -20,6 +20,7 @@ D:\Projects\p-rag\src\main\java\com\zzp\rag\service\HashEmbeddingService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\KnowledgeTraceService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MarkdownChunker.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MarkdownIngestionService.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\service\McpRoutingDecisionService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\McpToolClient.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MilvusVectorStore.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\MockMcpToolClient.java
@@ -27,5 +28,7 @@ D:\Projects\p-rag\src\main\java\com\zzp\rag\service\QaAuditService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\RagEvaluationService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\RagOrchestratorService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\RetrievalService.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\service\RuntimeMetricsService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\SessionContextService.java
 D:\Projects\p-rag\src\main\java\com\zzp\rag\service\VectorStore.java
+D:\Projects\p-rag\src\main\java\com\zzp\rag\service\WebSearchVectorCacheService.java

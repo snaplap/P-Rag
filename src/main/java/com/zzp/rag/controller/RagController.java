@@ -23,6 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,6 +82,7 @@ public class RagController {
                 finalPayload.put("references", answer.references());
                 finalPayload.put("evaluation", answer.evaluation());
                 finalPayload.put("mindMapCommand", answer.mindMapCommand());
+                finalPayload.put("logMetrics", buildLogMetricsPayload(request, answer));
                 // 最终事件包含来源、评估和思维导图调用指令，便于前端一次性收尾展示。
                 emitter.send(SseEmitter.event().name("final").data(finalPayload));
 
@@ -137,6 +139,48 @@ public class RagController {
     }
 
     private String sourceLabel(com.zzp.rag.domain.DataSourceType sourceType) {
-        return sourceType == com.zzp.rag.domain.DataSourceType.KNOWLEDGE_BASE ? "知识库" : "联网";
+        if (sourceType == null) {
+            return "知识库";
+        }
+        return switch (sourceType) {
+            case KNOWLEDGE_BASE -> "知识库";
+            case WEB -> "联网";
+            case HYBRID -> "知识库+联网";
+        };
+    }
+
+    private Map<String, Object> buildLogMetricsPayload(QueryRequest request, RagAnswer answer) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        Map<String, Object> sessionInfo = new LinkedHashMap<>();
+
+        String sessionId = request.getSessionId() == null || request.getSessionId().isBlank()
+                ? "anonymous"
+                : request.getSessionId().trim();
+        String knowledgeBaseId = request.getKnowledgeBaseId() == null || request.getKnowledgeBaseId().isBlank()
+                ? "-"
+                : request.getKnowledgeBaseId().trim();
+        String fileName = knowledgeTraceService.findLatestByKnowledgeBaseId(knowledgeBaseId)
+                .map(v -> v.fileName() == null || v.fileName().isBlank() ? v.knowledgeBaseId() : v.fileName())
+                .orElse(knowledgeBaseId);
+
+        sessionInfo.put("会话ID", sessionId);
+        sessionInfo.put("知识库ID", knowledgeBaseId);
+        sessionInfo.put("文件名", fileName);
+        sessionInfo.put("问题简述", summarizeQuestion(request.getQuestion()));
+        sessionInfo.put("请求时间", Instant.now().toString());
+        payload.put("会话信息", sessionInfo);
+
+        if (answer.logMetrics() != null && !answer.logMetrics().isEmpty()) {
+            payload.putAll(answer.logMetrics());
+        }
+        return payload;
+    }
+
+    private String summarizeQuestion(String question) {
+        if (question == null || question.isBlank()) {
+            return "-";
+        }
+        String normalized = question.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 42 ? normalized : normalized.substring(0, 42) + "...";
     }
 }

@@ -16,6 +16,7 @@ public class RagProperties {
     private final Chunking chunking = new Chunking();
     private final Milvus milvus = new Milvus();
     private final Mcp mcp = new Mcp();
+    private final Metrics metrics = new Metrics();
 
     public Llm getLlm() {
         return llm;
@@ -51,6 +52,10 @@ public class RagProperties {
 
     public Mcp getMcp() {
         return mcp;
+    }
+
+    public Metrics getMetrics() {
+        return metrics;
     }
 
     public static class Stream {
@@ -302,6 +307,27 @@ public class RagProperties {
 
         public void setCallTimeoutMs(int callTimeoutMs) {
             this.callTimeoutMs = callTimeoutMs;
+        }
+    }
+
+    public static class Metrics {
+        private double inputCostPer1kTokens = 0.0d;
+        private double outputCostPer1kTokens = 0.0d;
+
+        public double getInputCostPer1kTokens() {
+            return inputCostPer1kTokens;
+        }
+
+        public void setInputCostPer1kTokens(double inputCostPer1kTokens) {
+            this.inputCostPer1kTokens = inputCostPer1kTokens;
+        }
+
+        public double getOutputCostPer1kTokens() {
+            return outputCostPer1kTokens;
+        }
+
+        public void setOutputCostPer1kTokens(double outputCostPer1kTokens) {
+            this.outputCostPer1kTokens = outputCostPer1kTokens;
         }
     }
 }

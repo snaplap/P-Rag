@@ -39,6 +39,7 @@
       grid-template-columns: 300px 1fr;
       height: 100dvh;
       overflow: hidden;
+      will-change: grid-template-columns;
       transition: grid-template-columns 0.36s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
@@ -50,7 +51,7 @@
       flex-direction: column;
       padding: 16px 14px;
       gap: 14px;
-      transition: padding 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+      transition: padding 0.32s cubic-bezier(0.22, 1, 0.36, 1), gap 0.28s ease;
     }
 
     .logo {
@@ -58,6 +59,7 @@
       font-weight: 700;
       letter-spacing: 0.4px;
       overflow: hidden;
+      will-change: opacity, transform, max-height;
       max-height: 36px;
       transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
@@ -94,6 +96,7 @@
       padding: 10px;
       background: #fafdff;
       overflow: hidden;
+      will-change: opacity, transform, max-height;
       max-height: 240px;
       transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
@@ -140,6 +143,7 @@
       margin: 4px 0 0;
       padding: 0 2px;
       overflow: hidden;
+      will-change: opacity, transform, max-height;
       max-height: 20px;
       transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
@@ -150,6 +154,7 @@
       flex-direction: column;
       gap: 8px;
       padding-right: 2px;
+      will-change: opacity, transform, max-height;
       max-height: 100%;
       transition: opacity 0.28s ease, transform 0.32s ease, max-height 0.32s ease;
     }
@@ -376,6 +381,7 @@
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
       display: grid;
       grid-template-columns: 1fr auto;
+      align-items: center;
       gap: 10px;
       padding: 10px;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -399,6 +405,51 @@
       background: transparent;
     }
 
+    .composer-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .toggle-btn {
+      border: 1px solid #bdd6e7;
+      background: linear-gradient(130deg, #eef7ff 0%, #e6f3ff 100%);
+      color: #244254;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
+      box-shadow: 0 6px 16px rgba(59, 111, 139, 0.14);
+    }
+
+    .toggle-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px rgba(59, 111, 139, 0.2);
+    }
+
+    .toggle-btn.active {
+      background: linear-gradient(130deg, #d9f1ff 0%, #c8e9ff 100%);
+      border-color: #7eb6de;
+      box-shadow: 0 0 0 4px rgba(70, 141, 191, 0.14), 0 10px 22px rgba(59, 111, 139, 0.22);
+      animation: pulseToggle 0.42s ease;
+    }
+
+    #mindMapBtn {
+      width: 68px;
+      height: 44px;
+      font-size: 12px;
+    }
+
     .send-btn {
       width: 44px;
       height: 44px;
@@ -408,7 +459,6 @@
       color: #fff;
       cursor: pointer;
       transition: transform 0.18s ease, opacity 0.2s ease;
-      align-self: end;
       font-size: 18px;
     }
 
@@ -430,43 +480,6 @@
       justify-content: flex-start;
       align-items: center;
       gap: 12px;
-    }
-
-    .mindmap-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      user-select: none;
-      cursor: pointer;
-      color: #244254;
-      border: 1px solid #bdd6e7;
-      background: linear-gradient(130deg, #eef7ff 0%, #e6f3ff 100%);
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-weight: 700;
-      transition: transform 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
-      box-shadow: 0 6px 16px rgba(59, 111, 139, 0.14);
-      margin-left: auto;
-    }
-
-    .mindmap-toggle:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 18px rgba(59, 111, 139, 0.2);
-    }
-
-    .mindmap-toggle input {
-      accent-color: #3b6f8b;
-      cursor: pointer;
-      width: 16px;
-      height: 16px;
-      transform: translateY(1px);
-    }
-
-    .mindmap-toggle.active {
-      background: linear-gradient(130deg, #d9f1ff 0%, #c8e9ff 100%);
-      border-color: #7eb6de;
-      box-shadow: 0 0 0 4px rgba(70, 141, 191, 0.14), 0 10px 22px rgba(59, 111, 139, 0.22);
-      animation: pulseToggle 0.42s ease;
     }
 
     .mindmap-image {
@@ -537,7 +550,18 @@
     }
 
     .app.sidebar-collapsed {
-      grid-template-columns: 68px 1fr;
+      grid-template-columns: 74px 1fr;
+    }
+
+    .app:not(.sidebar-collapsed) .logo,
+    .app:not(.sidebar-collapsed) .upload-wrap,
+    .app:not(.sidebar-collapsed) .kb-title,
+    .app:not(.sidebar-collapsed) .kb-list {
+      opacity: 1;
+      transform: translateX(0);
+      max-height: 480px;
+      pointer-events: auto;
+      transition-delay: 0.05s;
     }
 
     .app.sidebar-collapsed .logo,
@@ -545,10 +569,11 @@
     .app.sidebar-collapsed .kb-title,
     .app.sidebar-collapsed .kb-list {
       opacity: 0;
-      transform: translateX(-8px);
+      transform: translateX(-14px);
       max-height: 0;
       margin: 0;
       pointer-events: none;
+      transition-delay: 0s;
     }
 
     .app.sidebar-collapsed .logo {
@@ -569,6 +594,133 @@
 
     .app.sidebar-collapsed .sidebar-toggle {
       transform: rotate(180deg);
+    }
+
+    .log-fab {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 12;
+      border: 1px solid #8ac0e5;
+      background: linear-gradient(135deg, #eef8ff 0%, #d7ecff 100%);
+      color: #1d4a69;
+      border-radius: 999px;
+      min-width: 56px;
+      height: 42px;
+      padding: 0 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(57, 136, 191, 0.26);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .log-fab:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 26px rgba(57, 136, 191, 0.3);
+    }
+
+    .log-modal {
+      position: fixed;
+      right: 18px;
+      bottom: 68px;
+      width: min(420px, calc(100vw - 24px));
+      max-height: 62vh;
+      z-index: 13;
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .log-modal.open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .log-panel {
+      border: 1px solid #bedef5;
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 18px 34px rgba(42, 105, 148, 0.22);
+      overflow: hidden;
+    }
+
+    .log-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid #e2eef8;
+      background: linear-gradient(140deg, #f6fbff 0%, #ecf7ff 100%);
+      font-size: 13px;
+      font-weight: 700;
+      color: #224f70;
+    }
+
+    .log-close {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 8px;
+      background: #d8eefe;
+      color: #255773;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .log-content {
+      max-height: calc(62vh - 46px);
+      overflow: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 12px;
+      color: #2a4f69;
+    }
+
+    .log-group {
+      border: 1px solid #e0edf8;
+      border-radius: 10px;
+      padding: 8px;
+      background: #fbfeff;
+    }
+
+    .log-group-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #205172;
+      margin-bottom: 7px;
+    }
+
+    .log-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 3px 0;
+      border-bottom: 1px dashed #e9f2f9;
+    }
+
+    .log-row:last-child {
+      border-bottom: 0;
+    }
+
+    .log-key {
+      color: #4d6f86;
+      word-break: break-all;
+    }
+
+    .log-value {
+      font-weight: 700;
+      color: #1f4662;
+      text-align: right;
+      word-break: break-all;
+    }
+
+    .log-empty {
+      color: #5f7f97;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -608,18 +760,30 @@
     <footer class="composer-shell">
       <div class="composer">
         <textarea id="questionInput" placeholder="给知识库提问，Enter 发送，Shift+Enter 换行"></textarea>
-        <button id="sendBtn" class="send-btn" title="发送">↑</button>
+        <div class="composer-actions">
+          <div class="top-actions">
+            <button id="mindMapBtn" class="toggle-btn" type="button" title="输出思维导图">导图</button>
+            <button id="sendBtn" class="send-btn" title="发送">↑</button>
+          </div>
+        </div>
       </div>
       <div class="composer-tip">
-        <span>回答默认基于当前知识库内容生成</span>
-        <span id="minorHint">运行细节默认隐藏</span>
-        <label class="mindmap-toggle" for="mindMapCheckbox">
-          <input id="mindMapCheckbox" type="checkbox">
-          输出思维导图
-        </label>
+        <span>系统会自动判断是否需要联网并融合知识库证据</span>
+        <span id="minorHint">自动策略已开启</span>
       </div>
     </footer>
   </main>
+</div>
+
+<button id="logBtn" class="log-fab" type="button" title="查看本轮日志指标">日志</button>
+<div id="logModal" class="log-modal" role="dialog" aria-modal="false" aria-label="日志指标弹窗">
+  <div class="log-panel">
+    <div class="log-head">
+      <span>实时日志指标</span>
+      <button id="logCloseBtn" class="log-close" type="button" title="关闭">×</button>
+    </div>
+    <div id="logContent" class="log-content"></div>
+  </div>
 </div>
 
 <script>
@@ -632,11 +796,15 @@
   const activeName = document.getElementById("activeName");
   const FIXED_TOP_K = 5;
   const questionInput = document.getElementById("questionInput");
-  const mindMapCheckbox = document.getElementById("mindMapCheckbox");
+  const mindMapBtn = document.getElementById("mindMapBtn");
   const sendBtn = document.getElementById("sendBtn");
   const chatWrap = document.getElementById("chatWrap");
   const chatScroll = document.getElementById("chatScroll");
   const minorHint = document.getElementById("minorHint");
+  const logBtn = document.getElementById("logBtn");
+  const logModal = document.getElementById("logModal");
+  const logCloseBtn = document.getElementById("logCloseBtn");
+  const logContent = document.getElementById("logContent");
 
   const MAX_HISTORY_MESSAGES = 120;
   const MAX_MESSAGE_CHARS = 12000;
@@ -644,6 +812,8 @@
   let traces = [];
   let active = null;
   let currentHistory = [];
+  let enableMindMap = false;
+  let logMetricsByKnowledgeBase = {};
 
   initialize();
 
@@ -658,7 +828,10 @@
 
   function bindEvents() {
     sidebarToggle.addEventListener("click", toggleSidebar);
-    mindMapCheckbox.addEventListener("change", onMindMapToggleChanged);
+    mindMapBtn.addEventListener("click", toggleMindMap);
+    logBtn.addEventListener("click", toggleLogModal);
+    logCloseBtn.addEventListener("click", closeLogModal);
+    document.addEventListener("click", closeLogModalOnOutsideClick);
 
     uploadBtn.addEventListener("click", () => mdFile.click());
 
@@ -835,7 +1008,7 @@
           sessionId: active.sessionId,
           knowledgeBaseId: active.knowledgeBaseId,
           topK: FIXED_TOP_K,
-          enableMindMap: Boolean(mindMapCheckbox.checked)
+          enableMindMap
         })
       });
 
@@ -885,10 +1058,22 @@
               if (payload.uncertain) {
                 minorHint.textContent = "当前回答存在不确定性，可补充文档后再试";
                 minorHint.className = "warn";
-              } else if (payload.mindMapCommand) {
-                minorHint.textContent = "已触发思维导图生成，取消勾选即可恢复普通回答";
-                minorHint.className = "";
-                appendMindMapImage(payload.mindMapCommand);
+              }
+              if (payload.mindMapCommand) {
+                const rendered = appendMindMapImage(payload.mindMapCommand);
+                if (rendered) {
+                  if (!payload.uncertain) {
+                    minorHint.textContent = "已触发思维导图生成";
+                    minorHint.className = "";
+                  }
+                } else {
+                  minorHint.textContent = "导图指令已返回，但未提供可渲染图片地址";
+                  minorHint.className = "warn";
+                }
+              }
+              if (payload.logMetrics && active && active.knowledgeBaseId) {
+                logMetricsByKnowledgeBase[active.knowledgeBaseId] = payload.logMetrics;
+                renderLogMetricsPanel();
               }
               updateMessageNode(assistantNode, assistantMessage);
             }
@@ -1131,11 +1316,11 @@
 
   function appendMindMapImage(command) {
     if (!command || !command.arguments) {
-      return;
+      return false;
     }
-    const imageUrl = command.arguments.imageUrl || command.arguments.url;
+    const imageUrl = command.arguments.imageUrl || command.arguments.diagramUrl || command.arguments.url;
     if (!imageUrl) {
-      return;
+      return false;
     }
 
     const tip = "思维导图\n\n![MindMap](" + imageUrl + ")";
@@ -1143,6 +1328,7 @@
     currentHistory = normalizeHistory(currentHistory);
     saveHistory(active.knowledgeBaseId, currentHistory);
     appendMessage("assistant", tip, "MindMap");
+    return true;
   }
 
   function initSidebarState() {
@@ -1157,24 +1343,98 @@
     localStorage.setItem("prag.sidebar.collapsed", appRoot.classList.contains("sidebar-collapsed") ? "1" : "0");
   }
 
-  function onMindMapToggleChanged() {
-    mindMapCheckbox.parentElement.classList.toggle("active", mindMapCheckbox.checked);
-    if (mindMapCheckbox.checked) {
-      minorHint.textContent = "思维导图模式已开启，本轮回答将附带导图指令";
-      minorHint.className = "";
-      return;
-    }
-    minorHint.textContent = "思维导图模式已关闭，后续回答恢复普通模式";
-    minorHint.className = "";
+  function toggleMindMap() {
+    enableMindMap = !enableMindMap;
+    mindMapBtn.classList.toggle("active", enableMindMap);
+    resetMinorHint();
+    renderLogMetricsPanel();
   }
 
   function resetMinorHint() {
-    if (mindMapCheckbox.checked) {
-      minorHint.textContent = "思维导图模式已开启，本轮回答将附带导图指令";
+    if (enableMindMap) {
+      minorHint.textContent = "思维导图模式已开启，联网策略仍由系统自动判断";
     } else {
-      minorHint.textContent = "运行细节默认隐藏";
+      minorHint.textContent = "自动策略已开启";
     }
     minorHint.className = "";
+  }
+
+  function toggleLogModal() {
+    if (logModal.classList.contains("open")) {
+      closeLogModal();
+      return;
+    }
+    renderLogMetricsPanel();
+    logModal.classList.add("open");
+  }
+
+  function closeLogModal() {
+    logModal.classList.remove("open");
+  }
+
+  function closeLogModalOnOutsideClick(event) {
+    if (!logModal.classList.contains("open")) {
+      return;
+    }
+    if (logModal.contains(event.target) || logBtn.contains(event.target)) {
+      return;
+    }
+    closeLogModal();
+  }
+
+  function renderLogMetricsPanel() {
+    const metrics = active && active.knowledgeBaseId
+      ? logMetricsByKnowledgeBase[active.knowledgeBaseId]
+      : null;
+    const viewModel = metrics || buildFallbackLogMetrics();
+    logContent.innerHTML = renderLogGroups(viewModel);
+  }
+
+  function buildFallbackLogMetrics() {
+    return {
+      "会话信息": {
+        "会话ID": active && active.sessionId ? active.sessionId : "-",
+        "知识库ID": active && active.knowledgeBaseId ? active.knowledgeBaseId : "-",
+        "文件名": active && active.fileName ? active.fileName : "-"
+      },
+      "提示": {
+        "状态": "请先发送一次问题，生成实时日志指标"
+      }
+    };
+  }
+
+  function renderLogGroups(data) {
+    if (!data || typeof data !== "object") {
+      return "<div class='log-empty'>暂无日志数据</div>";
+    }
+
+    const groups = Object.entries(data).map(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const rows = Object.entries(value).map(([itemKey, itemValue]) => {
+          return "<div class='log-row'><div class='log-key'>" + escapeHtml(itemKey)
+            + "</div><div class='log-value'>" + escapeHtml(renderLogValue(itemValue)) + "</div></div>";
+        }).join("");
+
+        return "<section class='log-group'><div class='log-group-title'>" + escapeHtml(key)
+          + "</div>" + rows + "</section>";
+      }
+
+      return "<section class='log-group'><div class='log-group-title'>" + escapeHtml(key)
+        + "</div><div class='log-row'><div class='log-key'>值</div><div class='log-value'>"
+        + escapeHtml(renderLogValue(value)) + "</div></div></section>";
+    }).join("");
+
+    return groups || "<div class='log-empty'>暂无日志数据</div>";
+  }
+
+  function renderLogValue(value) {
+    if (value === null || value === undefined) {
+      return "-";
+    }
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+    return String(value);
   }
 
   questionInput.addEventListener("input", () => {

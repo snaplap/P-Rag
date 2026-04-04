@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
@@ -70,5 +71,15 @@ public class KnowledgeTraceService {
             log.warn("Failed to list knowledge upload traces from redis: {}", ex.getMessage());
             return localFallback.stream().toList();
         }
+    }
+
+    public Optional<KnowledgeBaseTrace> findLatestByKnowledgeBaseId(String knowledgeBaseId) {
+        if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = knowledgeBaseId.trim();
+        return listAll().stream()
+                .filter(v -> normalized.equals(v.knowledgeBaseId()))
+                .findFirst();
     }
 }
