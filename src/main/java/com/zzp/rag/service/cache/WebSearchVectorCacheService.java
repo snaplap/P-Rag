@@ -19,6 +19,9 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+/**
+ * 联网检索向量缓存服务。
+ */
 public class WebSearchVectorCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(WebSearchVectorCacheService.class);
@@ -38,6 +41,9 @@ public class WebSearchVectorCacheService {
         this.embeddingService = embeddingService;
     }
 
+    /**
+     * 将联网证据向量化后缓存到 Redis，便于后续复用。
+     */
     public void cache(String question, List<RetrievalChunk> webEvidence) {
         if (question == null || question.isBlank() || webEvidence == null || webEvidence.isEmpty()) {
             return;
@@ -66,6 +72,9 @@ public class WebSearchVectorCacheService {
         }
     }
 
+    /**
+     * 将检索片段转换为可序列化向量文档。
+     */
     private Map<String, Object> toVectorDoc(RetrievalChunk chunk) {
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("id", chunk.id());
@@ -77,6 +86,9 @@ public class WebSearchVectorCacheService {
         return doc;
     }
 
+    /**
+     * 计算问题哈希键。
+     */
     private String md5Hex(String text) {
         try {
             MessageDigest digest = MessageDigest.getInstance("MD5");

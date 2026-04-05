@@ -6,6 +6,9 @@ import com.zzp.rag.domain.model.RetrievalChunk;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 问答结果对象，包含答案正文、证据和诊断信息。
+ */
 public record RagAnswer(
         String question,
         String answer,
@@ -16,6 +19,10 @@ public record RagAnswer(
         RagEvaluation evaluation,
         Map<String, Object> logMetrics,
         MindMapCommand mindMapCommand) {
+
+    /**
+     * 返回一个标记为缓存命中的新对象。
+     */
     public RagAnswer markCacheHit() {
         return new RagAnswer(
                 this.question,

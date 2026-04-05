@@ -59,12 +59,18 @@ public class RagController {
         this.ragProperties = ragProperties;
     }
 
+    /**
+     * 非流式问答接口。
+     */
     @PostMapping("/query")
     public RagAnswer query(@Valid @RequestBody QueryRequest request) {
         // 非流式接口：用于脚本调试或简单调用。
         return ragOrchestratorService.answer(request);
     }
 
+    /**
+     * 流式问答接口，返回 SSE 事件流。
+     */
     @PostMapping(value = "/query/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter queryStream(@Valid @RequestBody QueryRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -111,6 +117,9 @@ public class RagController {
         return emitter;
     }
 
+    /**
+     * 上传 Markdown 文档并执行摄入。
+     */
     @PostMapping(value = "/ingest/markdown", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public IngestResult ingestMarkdown(
             @RequestPart("file") MultipartFile file,
@@ -120,21 +129,33 @@ public class RagController {
         return markdownIngestionService.ingestMarkdown(markdown, documentId, file.getOriginalFilename());
     }
 
+    /**
+     * 查询历史知识库上传记录。
+     */
     @GetMapping("/knowledge-bases")
     public List<KnowledgeBaseTrace> listKnowledgeBases() {
         return knowledgeTraceService.listAll();
     }
 
+    /**
+     * 删除知识库及其关联数据。
+     */
     @DeleteMapping("/knowledge-bases/{knowledgeBaseId}")
     public KnowledgeBaseDeleteResult deleteKnowledgeBase(@PathVariable String knowledgeBaseId) {
         return knowledgeBaseManagementService.deleteKnowledgeBase(knowledgeBaseId);
     }
 
+    /**
+     * 健康检查接口。
+     */
     @GetMapping("/health")
     public Map<String, Object> health() {
         return Map.of("status", "UP");
     }
 
+    /**
+     * 将完整回答切成固定大小片段，用于 SSE 增量发送。
+     */
     private List<String> chunk(String text, int chunkSize) {
         if (text == null || text.isBlank()) {
             return List.of();
@@ -151,6 +172,9 @@ public class RagController {
         return chunks;
     }
 
+    /**
+     * 数据源枚举转用户可读文本。
+     */
     private String sourceLabel(DataSourceType sourceType) {
         if (sourceType == null) {
             return "知识库";
@@ -162,6 +186,9 @@ public class RagController {
         };
     }
 
+    /**
+     * 组装前端展示用日志指标。
+     */
     private Map<String, Object> buildLogMetricsPayload(QueryRequest request, RagAnswer answer) {
         Map<String, Object> payload = new LinkedHashMap<>();
         Map<String, Object> sessionInfo = new LinkedHashMap<>();
@@ -189,6 +216,9 @@ public class RagController {
         return payload;
     }
 
+    /**
+     * 问题摘要截断。
+     */
     private String summarizeQuestion(String question) {
         if (question == null || question.isBlank()) {
             return "-";

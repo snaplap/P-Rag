@@ -36,11 +36,14 @@ public class CacheService {
         this.ragProperties = ragProperties;
     }
 
+    /**
+     * 优先从 Redis 读取缓存；当 Redis 异常时降级到进程内缓存。
+     */
     public Optional<RagAnswer> get(String question, String knowledgeBaseId) {
         String key = buildKey(question, knowledgeBaseId);
 
         try {
-            // 浼樺厛璇诲彇 Redis锛堢敓浜ц矾寰勶級銆?
+            // 优先读取 Redis（生产主路径）。
             String raw = redisTemplate.opsForValue().get(key);
             if (raw != null) {
                 return Optional.of(objectMapper.readValue(raw, RagAnswer.class));
@@ -49,7 +52,7 @@ public class CacheService {
             log.warn("Redis read failed, use local cache fallback: {}", ex.getMessage());
         }
 
-        // Redis 涓嶅彲鐢ㄦ椂閫€鍖栧埌杩涚▼鍐呯紦瀛橈紝淇濊瘉婕旂ず鍜屽紑鍙戝満鏅彲缁х画宸ヤ綔銆?
+        // Redis 不可用时退化到本地缓存，保证演示和开发阶段可持续工作。
         LocalCacheEntry entry = localFallback.get(key);
         if (entry == null) {
             return Optional.empty();
@@ -62,6 +65,9 @@ public class CacheService {
         return Optional.of(entry.value);
     }
 
+    /**
+     * 写入回答缓存，并维护按知识库维度的索引，便于后续批量删除。
+     */
     public void put(String question, String knowledgeBaseId, RagAnswer answer) {
         String key = buildKey(question, knowledgeBaseId);
         String normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
@@ -74,7 +80,7 @@ public class CacheService {
             redisTemplate.expire(buildIndexKey(normalizedKnowledgeBaseId), Duration.ofSeconds(ttl));
         } catch (Exception ex) {
             log.warn("Redis write failed, use local cache fallback: {}", ex.getMessage());
-            // 鍥為€€缂撳瓨鍚屾牱甯?TTL锛岄伩鍏嶅唴瀛樻棤闄愬闀裤€?
+            // 回退缓存同样受 TTL 控制，避免内存无限增长。
             localFallback.put(
                     key,
                     new LocalCacheEntry(answer, System.currentTimeMillis() + (ttl * 1000L), normalizedKnowledgeBaseId));
@@ -83,6 +89,9 @@ public class CacheService {
         trackLocalKey(normalizedKnowledgeBaseId, key);
     }
 
+    /**
+     * 按知识库删除缓存，优先 Redis 索引，再清理本地回退缓存。
+     */
     public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
         String normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
         int removed = 0;
@@ -110,6 +119,9 @@ public class CacheService {
         return removed;
     }
 
+    /**
+     * 通过“知识库 + 问题归一化文本”生成稳定缓存键。
+     */
     private String buildKey(String question, String knowledgeBaseId) {
         String normalized = question == null ? "" : question.trim().toLowerCase();
         String kb = normalizeKnowledgeBaseId(knowledgeBaseId);
@@ -117,10 +129,16 @@ public class CacheService {
         return ragProperties.getCache().getKeyPrefix() + hash;
     }
 
+    /**
+     * 构建知识库维度的缓存索引键。
+     */
     private String buildIndexKey(String normalizedKnowledgeBaseId) {
         return CACHE_INDEX_PREFIX + normalizedKnowledgeBaseId;
     }
 
+    /**
+     * 归一化知识库标识；缺省值统一映射为 global。
+     */
     private String normalizeKnowledgeBaseId(String knowledgeBaseId) {
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
             return "global";
@@ -128,12 +146,18 @@ public class CacheService {
         return knowledgeBaseId.trim().toLowerCase();
     }
 
+    /**
+     * 在本地索引中登记缓存键。
+     */
     private void trackLocalKey(String normalizedKnowledgeBaseId, String key) {
         localCacheIndexByKb
                 .computeIfAbsent(normalizedKnowledgeBaseId, ignored -> ConcurrentHashMap.newKeySet())
                 .add(key);
     }
 
+    /**
+     * 在本地索引中移除缓存键；索引为空时同步删除索引集合。
+     */
     private void untrackLocalKey(String normalizedKnowledgeBaseId, String key) {
         Set<String> keys = localCacheIndexByKb.get(normalizedKnowledgeBaseId);
         if (keys == null) {
@@ -145,6 +169,9 @@ public class CacheService {
         }
     }
 
+    /**
+     * 计算字符串 MD5；若算法不可用则回退 hashCode。
+     */
     private String md5Hex(String text) {
         try {
             MessageDigest digest = MessageDigest.getInstance("MD5");

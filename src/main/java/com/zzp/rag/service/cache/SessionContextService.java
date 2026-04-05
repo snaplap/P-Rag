@@ -18,6 +18,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
+/**
+ * 会话上下文服务，维护最近 N 轮问答历史。
+ */
 public class SessionContextService {
 
     private static final Logger log = LoggerFactory.getLogger(SessionContextService.class);
@@ -34,6 +37,9 @@ public class SessionContextService {
         this.ragProperties = ragProperties;
     }
 
+    /**
+     * 读取会话历史，优先 Redis，失败时降级本地内存。
+     */
     public List<ConversationTurn> load(String sessionId) {
         String key = buildKey(sessionId);
         int maxHistory = Math.max(1, ragProperties.getSession().getMaxHistory());
@@ -61,6 +67,9 @@ public class SessionContextService {
         return turns;
     }
 
+    /**
+     * 追加一轮会话并控制历史长度。
+     */
     public void append(String sessionId, ConversationTurn turn) {
         String key = buildKey(sessionId);
         int maxHistory = Math.max(1, ragProperties.getSession().getMaxHistory());
@@ -83,6 +92,9 @@ public class SessionContextService {
         }
     }
 
+    /**
+     * 删除指定会话历史。
+     */
     public int deleteSession(String sessionId) {
         String key = buildKey(sessionId);
         int removed = 0;
@@ -104,6 +116,9 @@ public class SessionContextService {
         return removed;
     }
 
+    /**
+     * 构建会话缓存键。
+     */
     private String buildKey(String sessionId) {
         String sid = (sessionId == null || sessionId.isBlank()) ? "anonymous" : sessionId.trim();
         return ragProperties.getSession().getKeyPrefix() + sid;

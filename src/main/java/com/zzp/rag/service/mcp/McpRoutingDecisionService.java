@@ -29,6 +29,11 @@ public class McpRoutingDecisionService {
             String reason) {
     }
 
+    /**
+     * 路由决策主入口。
+     * 注意：这里同时考虑“证据完整度、时效风险、问题类型、成本约束”，
+     * 调整任一阈值都可能改变 RAG/MCP 的命中分布。
+     */
     public Decision decide(String question, List<RetrievalChunk> ragEvidence, double minScore) {
         String q = question == null ? "" : question.trim();
         List<RetrievalChunk> safeEvidence = ragEvidence == null ? Collections.emptyList() : ragEvidence;
@@ -98,12 +103,18 @@ public class McpRoutingDecisionService {
         return new Decision(route, confidence, similarity, keyHit, completeness, staleRisk, categories, reason);
     }
 
+    /**
+     * 判断问题是否需要强制新鲜检索。
+     */
     public boolean requiresFreshSearch(String question) {
         String q = question == null ? "" : question;
         Set<String> categories = classifyQuestion(q);
         return categories.contains("C") || explicitLatestIntent(q);
     }
 
+    /**
+     * 问题分类器：A 内部知识，B 通用问答，C 时效问题，D 外部世界，E 多维综合。
+     */
     private Set<String> classifyQuestion(String question) {
         String q = question == null ? "" : question.toLowerCase(Locale.ROOT);
         Set<String> categories = new LinkedHashSet<>();
@@ -130,6 +141,9 @@ public class McpRoutingDecisionService {
         return categories;
     }
 
+    /**
+     * 计算检索相似度（取前 3 条平均分）。
+     */
     private double computeSimilarity(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return 0.0d;
@@ -143,6 +157,9 @@ public class McpRoutingDecisionService {
         return sum / limit;
     }
 
+    /**
+     * 根据证据命中和相似度评估完整性。
+     */
     private String evaluateCompleteness(List<RetrievalChunk> evidence, double similarity, boolean keyHit) {
         if (evidence == null || evidence.isEmpty()) {
             return "缺失";
@@ -156,25 +173,41 @@ public class McpRoutingDecisionService {
         return "缺失";
     }
 
+    /**
+     * 判断问题是否可能存在知识过期风险。
+     */
     private boolean mayBeOutdatedQuestion(String q) {
         return containsAny(q, "版本", "发布", "更新时间", "政策", "价格", "活动", "行情", "趋势");
     }
 
+    /**
+     * 判断是否显式要求最新信息。
+     */
     private boolean explicitLatestIntent(String q) {
         return containsAny(q.toLowerCase(Locale.ROOT), "最新", "当前", "today", "now", "刚刚", "实时");
     }
 
+    /**
+     * 判断高风险决策类问题。
+     */
     private boolean highRiskDecisionQuestion(String q) {
         return containsAny(q.toLowerCase(Locale.ROOT), "投资", "买入", "医疗", "诊断", "法律", "合规", "财务", "风险", "决策");
     }
 
+    /**
+     * 判断是否为“文档总结类”问题。
+     */
     private boolean documentSummaryQuestion(String q) {
         String lower = q.toLowerCase(Locale.ROOT);
         return containsAny(lower,
                 "这篇文章", "这篇文档", "这份文档", "本文", "这篇材料", "这个文件", "该文", "文中",
-                "讲了什么", "主要内容", "核心内容", "总结", "摘要", "概述", "重点", "主旨");
+                "讲了什么", "讲的什么", "讲了啥", "讲的啥", "到底讲了啥", "主要讲啥", "说了什么", "说了啥",
+                "这篇在讲什么", "这段在讲什么", "内容是什么", "主要内容", "核心内容", "总结", "摘要", "概述", "重点", "主旨");
     }
 
+    /**
+     * 文本包含任一关键词。
+     */
     private boolean containsAny(String text, String... words) {
         for (String word : words) {
             if (text.contains(word)) {
@@ -184,6 +217,9 @@ public class McpRoutingDecisionService {
         return false;
     }
 
+    /**
+     * 将值裁剪到 [0,1] 区间。
+     */
     private double clamp(double value) {
         if (value < 0.0d) {
             return 0.0d;

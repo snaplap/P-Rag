@@ -1,135 +1,189 @@
 # P-Rag
 
-本项目是 RAG 智能问答示例，采用 Spring Boot  架构，包含内嵌前端页面，可直接在浏览器上传 Markdown 并进行流式对话。
+一个可直接运行的 RAG 示例项目：
 
-## 你现在可以做什么
+- 后端：Spring Boot
+- 前端：内置静态页面（无需单独前端工程）
+- 中间件：Redis + Milvus
+- 能力：Markdown 上传、向量检索、流式回答、联网兜底、质量评估、思维导图指令
 
-1. 启动后端后直接访问首页 UI（无需额外前端工程）
-2. 在页面上传 Markdown 文件，自动切片并向量化
-3. 每次上传会自动创建独立知识库（KB）和新会话
-4. 页面会保存并展示上传痕迹，可切换历史 KB 继续对话
-5. 在页面输入问题，接收 SSE 流式回答
-6. 查看回答来源（知识库/联网）、不确定性与 MindMap 调用指令
+---
 
-## 一键准备中间件（Docker）
+## 1. 5 分钟快速上手
 
-项目根目录已提供 `docker-compose.yml`，包含：
+### 第一步：启动中间件
 
-1. Redis
-2. Milvus Standalone（含 etcd + minio）
-
-启动命令：
+项目根目录执行：
 
 ```bash
 docker compose up -d
 ```
 
-## 启动项目
+默认会启动：
+
+- Redis（6379）
+- Milvus Standalone（19530）
+
+### 第二步：启动应用
 
 ```bash
 mvn spring-boot:run
 ```
 
-启动后打开：
+### 第三步：打开页面
+
+浏览器访问：
 
 ```text
 http://localhost:8080/
 ```
 
-## 配置防回退说明（重要）
+### 第四步：实际体验一轮
 
-如果你修改的是 `target/classes/application.yml`，运行后会被重新覆盖，这是正常现象：
+1. 上传一个 Markdown 文件
+2. 页面会自动创建一个知识库（knowledgeBaseId）
+3. 输入问题并提问
+4. 观察流式回答和来源信息
 
-1. `target/classes` 属于构建产物目录
-2. 每次编译/运行时，Maven 会把 `src/main/resources/application.yml` 重新复制到该目录
+到这里，你已经完成完整链路：上传 -> 切片 -> 向量化 -> 检索 -> 生成。
 
-推荐做法：
+---
 
-1. 修改 `src/main/resources/application.yml`
-2. 私密配置写在项目根目录 `config/application-secrets.yml`
-3. `config/application-secrets.yml` 可手动创建，内容只保留你要覆盖的键
+## 2. 最小配置说明
 
-这样可以避免每次运行配置被覆盖，也能避免把 API Key 硬编码进源码。
+配置文件在：
 
-## 主要能力
+- `src/main/resources/application.yml`
 
-1. 缓存优先：先查 Redis，命中直接返回
-2. 检索增强：向量检索 + 轻量重排
-3. 无命中兜底：低相关触发 MCP 联网搜索（当前为 Mock 实现）
-4. 可追溯回答：严格基于证据生成并标注来源
-5. 质量评估：返回命中状态、幻觉风险、可追溯分
-6. 流式响应：SSE 增量文本 + final 事件
-7. 思维导图：final 事件内包含 MindMap 调用指令
+常用环境变量：
 
-## API
+1. `REDIS_HOST`
+2. `REDIS_PORT`
+3. `MILVUS_USE_REMOTE`
+4. `MILVUS_BASE_URL`
+5. `MILVUS_COLLECTION`
+6. `LLM_BASE_URL`
+7. `LLM_API_KEY`
+8. `LLM_MODEL`
+9. `EMBEDDING_MODEL`
 
-### 上传 Markdown
+建议：
 
-`POST /api/rag/ingest/markdown`
+- 业务配置改 `src/main/resources/application.yml`
+- 私密配置（如 API Key）写到你自己的外部配置文件，不要写死进源码
 
-- form-data: `file` (Markdown)
-- form-data: `documentId` (可选)
+注意：
 
-返回示例（已包含新知识库会话信息）：
+- 不要改 `target/classes/application.yml`，它会在构建时被覆盖。
+
+---
+
+## 3. API 快速调用
+
+### 3.1 上传 Markdown
+
+接口：`POST /api/rag/ingest/markdown`
+
+```bash
+curl -X POST http://localhost:8080/api/rag/ingest/markdown \
+  -F "file=@./demo.md"
+```
+
+返回示例：
 
 ```json
 {
   "knowledgeBaseId": "kb-58c1f1b7c923",
   "sessionId": "session-kb-58c1f1b7c923",
   "documentId": "2f4c7d4a-...",
-  "fileName": "manual.md",
+  "fileName": "demo.md",
   "chunkCount": 12,
   "message": "markdown ingestion completed"
 }
 ```
 
-### 查询上传痕迹
+### 3.2 非流式问答
 
-`GET /api/rag/knowledge-bases`
+接口：`POST /api/rag/query`
 
-- 返回历史上传记录（knowledgeBaseId、sessionId、fileName、chunkCount 等）
-
-### 非流式问答
-
-`POST /api/rag/query`
-
-```json
-{
-  "question": "什么是 RAG？",
-  "sessionId": "u-1001",
-  "knowledgeBaseId": "kb-58c1f1b7c923",
-  "topK": 5
-}
+```bash
+curl -X POST http://localhost:8080/api/rag/query \
+  -H "Content-Type: application/json" \
+  -d "{\"question\":\"这篇文档主要讲了什么\",\"knowledgeBaseId\":\"kb-58c1f1b7c923\",\"topK\":5}"
 ```
 
-### 流式问答
+### 3.3 流式问答（SSE）
 
-`POST /api/rag/query/stream`
+接口：`POST /api/rag/query/stream`
 
-- content-type: `application/json`
-- response: `text/event-stream`
-- 事件：`chunk` + `final`
+- 返回 `text/event-stream`
+- 事件类型：`chunk`（增量文本）与 `final`（最终结构化数据）
 
-## Docker 配置参数
+### 3.4 查询知识库列表
 
-`src/main/resources/application.yml` 支持通过环境变量覆盖：
+接口：`GET /api/rag/knowledge-bases`
 
-1. `REDIS_HOST` / `REDIS_PORT`
-2. `MILVUS_USE_REMOTE`
-3. `MILVUS_BASE_URL`
-4. `MILVUS_COLLECTION`
-5. `LLM_PROVIDER`
-6. `LLM_BASE_URL`
-7. `LLM_API_KEY`
-8. `LLM_MODEL`
-9. `EMBEDDING_MODEL`
+### 3.5 删除知识库
 
-其中大模型配置路径位于 `app.rag.llm.*`，可在 `src/main/resources/application.yml` 中直接查看和修改。
+接口：`DELETE /api/rag/knowledge-bases/{knowledgeBaseId}`
 
-默认即对应本机 Docker 端口映射：Redis `6379`，Milvus `19530`。
+---
 
-## 说明
+## 4. 项目目录速读
 
-1. 当前 Milvus 远端调用保留了扩展点，默认仍有本地回退索引，方便开发和联调。
-2. 当前 MCP 联网搜索与 MindMap 为 Mock 实现，后续可切换真实 MCP 服务。
-3. 前端默认隐藏检索分数、缓存命中、MindMap 指令等运行细节，用户只看到自然语言回答。
+下面是最常看的目录：
+
+- `src/main/java/com/zzp/rag/controller`：接口入口层
+- `src/main/java/com/zzp/rag/service`：业务服务层（编排、检索、生成、缓存等）
+- `src/main/java/com/zzp/rag/domain`：领域对象层（DTO、模型、追踪记录）
+- `src/main/resources/static`：内置前端页面
+
+如果你是第一次接手，建议阅读顺序：
+
+1. `RagController`（先看入口）
+2. `RagOrchestratorService`（再看主流程）
+3. `retrieval` / `generation` / `mcp` 子包（看关键能力）
+
+---
+
+## 5. 常见问题与排查
+
+### Q1：为什么我改了配置又“失效”？
+
+你可能改的是 `target/classes` 下的文件。该目录是构建产物，运行会覆盖。
+
+### Q2：回答里为什么会出现“不确定性声明”？
+
+当证据不足或评估风险较高时，系统会主动提示不确定性，避免“看起来很自信但其实没依据”。
+
+### Q3：MCP 看起来没生效？
+
+默认支持回退，远端调用失败时会使用 mock 结果。可通过返回中的链路诊断字段确认是否发生回退。
+
+### Q4：Milvus 挂了还能用吗？
+
+当前实现有本地回退索引，开发环境可继续联调，但线上建议始终保证远端存储可用。
+
+---
+
+## 6. 开发与测试
+
+运行全部测试：
+
+```bash
+mvn test
+```
+
+只跑某个测试类：
+
+```bash
+mvn -Dtest=MarkdownChunkerTest test
+```
+
+---
+
+## 7. 当前实现边界
+
+1. MCP 联网和导图支持真实调用，但也内置了 mock 回退
+2. 质量指标以在线启发式为主，离线标注评估可后续增强
+3. 前端默认优先用户体验，隐藏了多数底层运行细节

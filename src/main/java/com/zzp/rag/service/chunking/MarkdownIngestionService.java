@@ -27,13 +27,17 @@ public class MarkdownIngestionService {
         this.knowledgeTraceService = knowledgeTraceService;
     }
 
+    /**
+     * 将 Markdown 文档切片、向量化并写入向量存储。
+     * 注意：knowledgeBaseId 与 sessionId 在这里绑定生成，后续检索与会话追踪都依赖该约定。
+     */
     public IngestResult ingestMarkdown(String markdown, String documentId, String fileName) {
         String knowledgeBaseId = "kb-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String sessionId = "session-" + knowledgeBaseId;
         String docId = (documentId == null || documentId.isBlank()) ? UUID.randomUUID().toString() : documentId;
         List<String> chunks = markdownChunker.split(markdown);
 
-        // 鍒嗙墖鍚庨€愭潯鍚戦噺鍖栧苟鍐欏叆鍚戦噺瀛樺偍锛屼究浜庡悗缁涔夋绱€?
+        // 逐片段向量化并写入存储，保证后续可以按片段召回证据。
         int index = 0;
         for (String chunk : chunks) {
             String chunkId = docId + "#" + index;

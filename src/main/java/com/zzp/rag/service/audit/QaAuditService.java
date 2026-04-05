@@ -14,6 +14,9 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
+/**
+ * 问答审计日志服务。
+ */
 public class QaAuditService {
 
     private static final Logger log = LoggerFactory.getLogger(QaAuditService.class);
@@ -29,6 +32,9 @@ public class QaAuditService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 插入单条审计记录，失败时降级到本地内存。
+     */
     public void safeInsert(String sessionId, String question, DataSourceType source, boolean uncertain,
             boolean cacheHit) {
         Map<String, Object> record = new LinkedHashMap<>();
@@ -52,6 +58,9 @@ public class QaAuditService {
         }
     }
 
+    /**
+     * 删除指定会话的审计记录。
+     */
     public int deleteBySessionId(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return 0;
@@ -88,6 +97,9 @@ public class QaAuditService {
         return removed;
     }
 
+    /**
+     * 判断审计记录是否属于指定会话。
+     */
     private boolean isAuditRecordForSession(String raw, String sessionId) {
         if (raw == null || raw.isBlank()) {
             return false;

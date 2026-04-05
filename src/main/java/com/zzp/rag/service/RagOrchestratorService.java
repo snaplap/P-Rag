@@ -26,9 +26,12 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class RagOrchestratorService {
@@ -72,6 +75,11 @@ public class RagOrchestratorService {
         this.runtimeMetricsService = runtimeMetricsService;
     }
 
+    /**
+     * RAG 主编排入口。
+     * 注意：该方法按“缓存 -> 检索/路由 -> 生成 -> 评估 -> 持久化”顺序执行，
+     * 任一阶段的策略变化都会影响最终回答质量与成本，调整时需配套回归测试。
+     */
     public RagAnswer answer(QueryRequest request) {
         RuntimeMetricsService.RequestTracker tracker = runtimeMetricsService.startRequest();
         String question = request.getQuestion().trim();
@@ -85,7 +93,7 @@ public class RagOrchestratorService {
         String cacheQuestion = buildCacheQuestion(question);
 
         try {
-            // 绗竴姝ワ細缂撳瓨浼樺厛锛屽懡涓洿鎺ヨ繑鍥炪€?
+            // 第一步：缓存优先；命中且质量可用时直接返回。
             Optional<RagAnswer> cacheHit = forceFresh ? Optional.empty()
                     : cacheService.get(cacheQuestion, knowledgeBaseId);
             if (!forceFresh && cacheHit.isPresent()) {
@@ -178,7 +186,7 @@ public class RagOrchestratorService {
             RagEvaluation evaluation = ragEvaluationService.evaluate(sourceType, evidence, answerText);
             boolean uncertain = "HIGH".equalsIgnoreCase(evaluation.hallucinationRisk()) || evidence.isEmpty();
             if (uncertain) {
-                answerText = answerText + "\n涓嶇‘瀹氭€у０鏄庯細褰撳墠璇佹嵁涓嶈冻锛岀粨璁轰粎渚涘弬鑰冦€俓n";
+                answerText = answerText + "\n不确定性声明：当前证据不足，结论仅供参考。\n";
             }
 
             MindMapCommand mindMapCommand = null;
@@ -215,7 +223,7 @@ public class RagOrchestratorService {
                     logMetrics,
                     mindMapCommand);
 
-            // 绗洓姝ワ細鍐欑紦瀛樸€佸啓浼氳瘽璁板繂銆佸啓瀹¤銆?
+            // 第四步：写缓存、会话记忆、审计日志。
             if (!uncertain && evidence != null && !evidence.isEmpty()) {
                 cacheService.put(cacheQuestion, knowledgeBaseId, ragAnswer);
             }
@@ -228,46 +236,136 @@ public class RagOrchestratorService {
         }
     }
 
+    /**
+     * 构建缓存问题键，包含自动路由标记，避免与其他缓存策略冲突。
+     */
     private String buildCacheQuestion(String question) {
         return question + "::auto-route";
     }
 
+    /**
+     * 合并知识库与联网证据，统一排序并去重。
+     * 注意：这里限制上限，防止过多低相关片段挤占上下文窗口。
+     */
     private List<RetrievalChunk> mergeEvidence(List<RetrievalChunk> kbEvidence, List<RetrievalChunk> webEvidence,
             int topK) {
+        List<RetrievalChunk> all = new ArrayList<>();
+        if (kbEvidence != null) {
+            all.addAll(kbEvidence);
+        }
+        if (webEvidence != null) {
+            all.addAll(webEvidence);
+        }
+        if (all.isEmpty()) {
+            return List.of();
+        }
+
+        List<RetrievalChunk> sorted = all.stream()
+                .filter(v -> v != null && v.content() != null && !v.content().isBlank())
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .toList();
+        if (sorted.isEmpty()) {
+            return List.of();
+        }
+
+        int limit = Math.max(topK, Math.min(8, sorted.size()));
         List<RetrievalChunk> merged = new ArrayList<>();
-        if (kbEvidence != null && !kbEvidence.isEmpty()) {
-            merged.addAll(kbEvidence);
+        Set<String> dedup = new LinkedHashSet<>();
+        for (RetrievalChunk chunk : sorted) {
+            if (merged.size() >= limit) {
+                break;
+            }
+            String key = evidenceKey(chunk);
+            if (dedup.add(key)) {
+                merged.add(chunk);
+            }
         }
-        if (webEvidence != null && !webEvidence.isEmpty()) {
-            merged.addAll(webEvidence);
-        }
-
-        if (merged.isEmpty()) {
-            return merged;
-        }
-
-        int limit = Math.max(topK, Math.min(8, merged.size()));
-        if (merged.size() <= limit) {
-            return merged;
-        }
-        return merged.subList(0, limit);
+        return merged;
     }
 
+    /**
+     * 联网检索回退转换：将 Web 搜索结果转换为统一 RetrievalChunk。
+     */
     private WebEvidenceResult fallbackToWebSearch(String question, int topK) {
         List<WebSearchResult> webResults = mcpToolClient.searchWeb(question, topK);
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (int i = 0; i < webResults.size(); i++) {
             WebSearchResult web = webResults.get(i);
+            String sourceLabel = toWebSourceLabel(web, i + 1);
             chunks.add(new RetrievalChunk(
                     "web-" + i,
-                    web.url(),
-                    web.snippet(),
-                    web.confidence(),
+                    sourceLabel,
+                    buildWebChunkContent(web),
+                    clampScore(web.confidence()),
                     DataSourceType.WEB));
         }
         return new WebEvidenceResult(chunks, isMockWebSearchResult(webResults));
     }
 
+    /**
+     * 生成用于检索/生成的 Web 证据正文。
+     */
+    private String buildWebChunkContent(WebSearchResult web) {
+        if (web == null) {
+            return "";
+        }
+        String title = web.title() == null ? "" : web.title().trim();
+        String snippet = web.snippet() == null ? "" : web.snippet().trim();
+        if (!title.isBlank() && !snippet.isBlank()) {
+            return title + "。" + snippet;
+        }
+        return !snippet.isBlank() ? snippet : title;
+    }
+
+    /**
+     * 将 Web 来源转成可读标签，优先标题，其次域名。
+     */
+    private String toWebSourceLabel(WebSearchResult web, int index) {
+        if (web == null) {
+            return "联网结果" + index;
+        }
+        String title = web.title() == null ? "" : web.title().trim();
+        if (!title.isBlank()) {
+            return title;
+        }
+        String url = web.url() == null ? "" : web.url().trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            try {
+                java.net.URI uri = java.net.URI.create(url);
+                String host = uri.getHost();
+                if (host != null && !host.isBlank()) {
+                    return host.startsWith("www.") ? host.substring(4) : host;
+                }
+            } catch (Exception ignored) {
+                // ignored
+            }
+        }
+        return "联网结果" + index;
+    }
+
+    /**
+     * 证据去重键：来源 + 内容前缀。
+     */
+    private String evidenceKey(RetrievalChunk chunk) {
+        String source = chunk.documentId() == null ? "" : chunk.documentId().trim().toLowerCase(Locale.ROOT);
+        String content = chunk.content() == null ? ""
+                : chunk.content().replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
+        if (content.length() > 100) {
+            content = content.substring(0, 100);
+        }
+        return source + "|" + content;
+    }
+
+    /**
+     * 分数裁剪到 [0,1]，避免异常分值污染后续排序。
+     */
+    private double clampScore(double score) {
+        return Math.max(0.0d, Math.min(1.0d, score));
+    }
+
+    /**
+     * 判断是否命中模拟 Web 结果。
+     */
     private boolean isMockWebSearchResult(List<WebSearchResult> webResults) {
         if (webResults == null || webResults.isEmpty()) {
             return false;
@@ -279,6 +377,9 @@ public class RagOrchestratorService {
         });
     }
 
+    /**
+     * 将链路诊断字段写入日志指标，便于排查“命中回退但看起来成功”的问题。
+     */
     private void attachChainDiagnostics(
             Map<String, Object> logMetrics,
             boolean llmUsed,
@@ -295,6 +396,9 @@ public class RagOrchestratorService {
         logMetrics.put("链路诊断", chain);
     }
 
+    /**
+     * 归一化 sessionId。
+     */
     private String normalizeSessionId(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return "anonymous";
@@ -302,6 +406,9 @@ public class RagOrchestratorService {
         return sessionId.trim();
     }
 
+    /**
+     * 归一化 knowledgeBaseId。
+     */
     private String normalizeKnowledgeBaseId(String knowledgeBaseId) {
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
             return null;

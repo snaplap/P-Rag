@@ -8,8 +8,14 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
+/**
+ * 回答质量评估服务。
+ */
 public class RagEvaluationService {
 
+    /**
+     * 根据证据数量与来源评估幻觉风险和可追溯性。
+     */
     public RagEvaluation evaluate(DataSourceType sourceType, List<RetrievalChunk> evidence, String answer) {
         int evidenceCount = evidence == null ? 0 : evidence.size();
         boolean knowledgeHit = (sourceType == DataSourceType.KNOWLEDGE_BASE || sourceType == DataSourceType.HYBRID)

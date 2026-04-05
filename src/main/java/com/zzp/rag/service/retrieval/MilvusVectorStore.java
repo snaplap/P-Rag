@@ -37,18 +37,25 @@ public class MilvusVectorStore implements VectorStore {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 向量写入入口：始终先写本地索引，再尝试远端 Milvus。
+     * 注意：先本地后远端可保证远端故障时检索仍可用。
+     */
     @Override
     public void upsert(VectorDocument vectorDocument) {
-        // 姘歌繙鍏堝啓鏈湴绱㈠紩锛屼繚璇佹湰鍦板紑鍙戝拰瀹圭伨鍦烘櫙鍙绱€?
+        // 始终先写本地索引，保障本地开发与容灾场景可检索。
         localIndex.put(vectorDocument.id(), vectorDocument);
         if (ragProperties.getMilvus().isUseRemote()) {
             pushToRemoteSafely(vectorDocument);
         }
     }
 
+    /**
+     * 向量检索入口：优先远端，失败时降级本地索引。
+     */
     @Override
     public List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId) {
-        // 涓洪伩鍏嶈法鐭ヨ瘑搴撴贩娣嗭紝妫€绱㈤樁娈靛繀椤绘惡甯?knowledgeBaseId銆?
+        // 为避免跨知识库混淆，检索阶段必须携带 knowledgeBaseId。
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
             return List.of();
         }
@@ -60,7 +67,7 @@ public class MilvusVectorStore implements VectorStore {
             }
         }
 
-        // 棣栫増榛樿浠庢湰鍦扮储寮曡繑鍥烇紱鍚庣画鍙浛鎹负杩滅 Milvus 鎼滅储缁撴灉銆?
+        // 本地索引兜底检索路径。
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (VectorDocument doc : localIndex.values()) {
             if (knowledgeBaseId != null && !knowledgeBaseId.equals(doc.knowledgeBaseId())) {
@@ -81,6 +88,9 @@ public class MilvusVectorStore implements VectorStore {
                 .toList();
     }
 
+    /**
+     * 按知识库删除向量：本地先删，远端尽力删除。
+     */
     @Override
     public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
@@ -96,12 +106,18 @@ public class MilvusVectorStore implements VectorStore {
         return localDeleted;
     }
 
+    /**
+     * 本地索引删除实现。
+     */
     private int deleteFromLocalIndex(String knowledgeBaseId) {
         int before = localIndex.size();
         localIndex.entrySet().removeIf(entry -> knowledgeBaseId.equals(entry.getValue().knowledgeBaseId()));
         return Math.max(0, before - localIndex.size());
     }
 
+    /**
+     * 远端 Milvus 删除实现，失败不抛出以避免影响主流程。
+     */
     private void deleteFromRemoteSafely(String knowledgeBaseId) {
         try {
             ensureRemoteCollection();
@@ -116,6 +132,9 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    /**
+     * 远端 Milvus upsert，异常时保持静默降级。
+     */
     private void pushToRemoteSafely(VectorDocument vectorDocument) {
         try {
             ensureRemoteCollection();
@@ -137,6 +156,9 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    /**
+     * 远端向量检索，返回统一 RetrievalChunk。
+     */
     private List<RetrievalChunk> searchFromRemoteSafely(double[] queryVector, int topK, String knowledgeBaseId) {
         try {
             ensureRemoteCollection();
@@ -180,6 +202,9 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    /**
+     * 容错解析检索分数。
+     */
     private double parseScore(Object value) {
         if (value instanceof Number n) {
             return n.doubleValue();
@@ -194,10 +219,16 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    /**
+     * 转义 Milvus filter 字符串。
+     */
     private String escapeFilterValue(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    /**
+     * 保证远端集合存在，首次调用时懒加载创建。
+     */
     private void ensureRemoteCollection() throws Exception {
         if (remoteCollectionReady) {
             return;
@@ -213,7 +244,7 @@ public class MilvusVectorStore implements VectorStore {
             payload.put("dimension", ragProperties.getEmbedding().getDimension());
             payload.put("metricType", "COSINE");
 
-            // 鑻ラ泦鍚堝凡瀛樺湪锛孧ilvus 浼氳繑鍥炲紓甯镐俊鎭紝鐩存帴鍚炴帀骞剁户缁€?
+            // 若集合已存在，Milvus 可能返回异常信息；这里吞掉异常继续使用。
             try {
                 postMilvus("/v2/vectordb/collections/create", payload);
             } catch (Exception ignored) {
@@ -223,6 +254,9 @@ public class MilvusVectorStore implements VectorStore {
         }
     }
 
+    /**
+     * 统一封装 Milvus HTTP POST 调用。
+     */
     private Map<String, Object> postMilvus(String path, Map<String, Object> payload) throws Exception {
         String url = ragProperties.getMilvus().getBaseUrl() + path;
         String json = objectMapper.writeValueAsString(payload);
@@ -245,6 +279,9 @@ public class MilvusVectorStore implements VectorStore {
         });
     }
 
+    /**
+     * 余弦相似度计算。
+     */
     private double cosine(double[] a, double[] b) {
         if (a == null || b == null || a.length == 0 || b.length == 0 || a.length != b.length) {
             return 0.0d;

@@ -20,11 +20,16 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 
 @Component
+/**
+ * MCP 客户端实现：支持真实 HTTP 调用，失败时自动回退 Mock 结果。
+ */
 public class MockMcpToolClient implements McpToolClient {
 
     private static final Logger log = LoggerFactory.getLogger(MockMcpToolClient.class);
@@ -38,6 +43,9 @@ public class MockMcpToolClient implements McpToolClient {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 联网搜索入口，优先真实 MCP，失败后回退本地模拟结果。
+     */
     @Override
     public List<WebSearchResult> searchWeb(String question, int topK) {
         if (!ragProperties.getMcp().isUseMock()) {
@@ -67,6 +75,9 @@ public class MockMcpToolClient implements McpToolClient {
                 .stream().limit(safeTopK).toList();
     }
 
+    /**
+     * 思维导图入口，优先真实 MCP，失败后返回可渲染的 SVG Data URL。
+     */
     @Override
     public MindMapCommand generateMindMap(String question, String answer, DataSourceType sourceType,
             List<RetrievalChunk> evidence) {
@@ -82,11 +93,15 @@ public class MockMcpToolClient implements McpToolClient {
         arguments.put("source", sourceType.name());
         arguments.put("summary", safeSnippet(answer));
         arguments.put("evidenceCount", evidence == null ? 0 : evidence.size());
+        arguments.put("mcpFallback", true);
         arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
 
         return new MindMapCommand("mindmap.generate", arguments);
     }
 
+    /**
+     * 截断回答摘要，避免下游 payload 过大。
+     */
     private String safeSnippet(String answer) {
         if (answer == null || answer.isBlank()) {
             return "";
@@ -95,29 +110,40 @@ public class MockMcpToolClient implements McpToolClient {
         return answer.substring(0, max);
     }
 
+    /**
+     * 真实 HTTP 联网搜索调用。
+     */
     private List<WebSearchResult> searchWebViaHttp(String question, int topK) {
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("query", question);
             payload.put("topK", Math.max(1, topK));
 
-            JsonNode root = postJson(ragProperties.getMcp().getWebSearchUrl(), payload);
-            JsonNode resultsNode = root.isArray() ? root : root.path("results");
+            JsonCallResult callResult = postJsonWithAlternatives(
+                    ragProperties.getMcp().getWebSearchUrl(),
+                    payload,
+                    buildWebSearchCandidateUrls(ragProperties.getMcp().getWebSearchUrl()),
+                    "web-search");
+            JsonNode root = callResult.root();
+            JsonNode resultsNode = extractResultsNode(root);
             if (!resultsNode.isArray() || resultsNode.isEmpty()) {
+                log.warn("MCP web search returned empty result set, endpoint={}", callResult.endpoint());
                 return List.of();
             }
 
             List<WebSearchResult> results = new ArrayList<>();
             for (JsonNode node : resultsNode) {
-                String title = node.path("title").asText("");
-                String url = node.path("url").asText("");
-                String snippet = node.path("snippet").asText("");
-                if (snippet.isBlank()) {
-                    snippet = node.path("content").asText("");
+                String title = firstText(node, "title", "name", "headline");
+                String url = firstText(node, "url", "link", "href");
+                String snippet = firstText(node, "snippet", "content", "summary", "text", "description");
+                double confidence = firstDouble(node, 0.65d, "confidence", "score", "relevance", "rankScore");
+
+                if (title.isBlank()) {
+                    title = "WebResult";
                 }
-                double confidence = node.path("confidence").asDouble(0.65d);
                 results.add(new WebSearchResult(title, url, snippet, confidence));
             }
+            log.info("MCP web search succeeded via endpoint={}, count={}", callResult.endpoint(), results.size());
             return results;
         } catch (Exception ex) {
             log.warn("MCP web search call failed, fallback to mock: {}", ex.getMessage());
@@ -125,6 +151,9 @@ public class MockMcpToolClient implements McpToolClient {
         }
     }
 
+    /**
+     * 真实 HTTP 思维导图调用。
+     */
     private MindMapCommand generateMindMapViaHttp(
             String question,
             String answer,
@@ -137,11 +166,19 @@ public class MockMcpToolClient implements McpToolClient {
             payload.put("source", sourceType.name());
             payload.put("evidenceCount", evidence == null ? 0 : evidence.size());
 
-            JsonNode root = postJson(ragProperties.getMcp().getDiagramUrl(), payload);
+            JsonCallResult callResult = postJsonWithAlternatives(
+                    ragProperties.getMcp().getDiagramUrl(),
+                    payload,
+                    buildDiagramCandidateUrls(ragProperties.getMcp().getDiagramUrl()),
+                    "diagram");
+            JsonNode root = callResult.root();
             String tool = root.path("tool").asText("mindmap.generate");
 
             Map<String, Object> arguments = new LinkedHashMap<>();
             JsonNode argsNode = root.path("arguments");
+            if (!argsNode.isObject()) {
+                argsNode = root.path("data").path("arguments");
+            }
             if (argsNode.isObject()) {
                 arguments = objectMapper.convertValue(argsNode, Map.class);
             } else {
@@ -150,9 +187,9 @@ public class MockMcpToolClient implements McpToolClient {
                 arguments.put("summary", safeSnippet(answer));
             }
 
-            String imageUrl = root.path("imageUrl").asText("");
+            String imageUrl = firstText(root, "imageUrl", "diagramUrl", "url");
             if (imageUrl.isBlank()) {
-                imageUrl = root.path("diagramUrl").asText("");
+                imageUrl = firstText(root.path("data"), "imageUrl", "diagramUrl", "url");
             }
             if (!imageUrl.isBlank()) {
                 arguments.put("imageUrl", imageUrl);
@@ -160,6 +197,10 @@ public class MockMcpToolClient implements McpToolClient {
             if (!arguments.containsKey("imageUrl")) {
                 arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
             }
+            arguments.put("mcpFallback", false);
+            arguments.put("mcpEndpoint", callResult.endpoint());
+            log.info("MCP diagram succeeded via endpoint={}, hasImageUrl={}", callResult.endpoint(),
+                    arguments.get("imageUrl") != null);
             return new MindMapCommand(tool, arguments);
         } catch (Exception ex) {
             log.warn("MCP diagram call failed, fallback to mock: {}", ex.getMessage());
@@ -167,6 +208,34 @@ public class MockMcpToolClient implements McpToolClient {
         }
     }
 
+    /**
+     * 候选端点重试调用。
+     */
+    private JsonCallResult postJsonWithAlternatives(
+            String preferredUrl,
+            Map<String, Object> payload,
+            List<String> candidateUrls,
+            String feature) throws Exception {
+        Exception last = null;
+        for (String url : candidateUrls) {
+            try {
+                JsonNode root = postJson(url, payload);
+                return new JsonCallResult(url, root);
+            } catch (Exception ex) {
+                last = ex;
+                log.warn("MCP {} endpoint failed: {}, reason={}", feature, url, ex.getMessage());
+            }
+        }
+
+        if (last != null) {
+            throw last;
+        }
+        throw new IllegalStateException("No available endpoint for " + feature + ", preferred=" + preferredUrl);
+    }
+
+    /**
+     * 执行单次 HTTP JSON POST。
+     */
     private JsonNode postJson(String url, Map<String, Object> payload) throws Exception {
         String body = objectMapper.writeValueAsString(payload);
         HttpRequest request = HttpRequest.newBuilder()
@@ -186,6 +255,120 @@ public class MockMcpToolClient implements McpToolClient {
         return objectMapper.readTree(response.body());
     }
 
+    /**
+     * 兼容多种返回结构，提取搜索结果数组节点。
+     */
+    private JsonNode extractResultsNode(JsonNode root) {
+        if (root == null || root.isNull()) {
+            return objectMapper.createArrayNode();
+        }
+        if (root.isArray()) {
+            return root;
+        }
+
+        JsonNode results = root.path("results");
+        if (results.isArray()) {
+            return results;
+        }
+
+        JsonNode items = root.path("items");
+        if (items.isArray()) {
+            return items;
+        }
+
+        JsonNode data = root.path("data");
+        if (data.isArray()) {
+            return data;
+        }
+        JsonNode dataResults = data.path("results");
+        if (dataResults.isArray()) {
+            return dataResults;
+        }
+        JsonNode dataItems = data.path("items");
+        if (dataItems.isArray()) {
+            return dataItems;
+        }
+        return objectMapper.createArrayNode();
+    }
+
+    /**
+     * 按候选字段顺序读取第一个非空文本。
+     */
+    private String firstText(JsonNode node, String... fields) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+        for (String field : fields) {
+            String value = node.path(field).asText("").trim();
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 按候选字段顺序读取第一个可解析数值。
+     */
+    private double firstDouble(JsonNode node, double defaultValue, String... fields) {
+        if (node == null || node.isNull()) {
+            return defaultValue;
+        }
+        for (String field : fields) {
+            JsonNode valueNode = node.path(field);
+            if (!valueNode.isMissingNode() && !valueNode.isNull()) {
+                try {
+                    return Double.parseDouble(valueNode.asText());
+                } catch (Exception ignored) {
+                    // continue
+                }
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * 构建联网搜索候选端点列表。
+     */
+    private List<String> buildWebSearchCandidateUrls(String primaryUrl) {
+        Set<String> candidates = new LinkedHashSet<>();
+        candidates.add(primaryUrl);
+        candidates.add(replaceLastPath(primaryUrl, "/search"));
+        candidates.add(replaceLastPath(primaryUrl, "/mcp/search"));
+        candidates.add(replaceLastPath(primaryUrl, "/mcp/web-search/search"));
+        return candidates.stream().filter(v -> v != null && !v.isBlank()).toList();
+    }
+
+    /**
+     * 构建导图候选端点列表。
+     */
+    private List<String> buildDiagramCandidateUrls(String primaryUrl) {
+        Set<String> candidates = new LinkedHashSet<>();
+        candidates.add(primaryUrl);
+        candidates.add(replaceLastPath(primaryUrl, "/diagram"));
+        candidates.add(replaceLastPath(primaryUrl, "/mcp/diagram"));
+        candidates.add(replaceLastPath(primaryUrl, "/mindmap"));
+        return candidates.stream().filter(v -> v != null && !v.isBlank()).toList();
+    }
+
+    /**
+     * 替换 URL 路径段。
+     */
+    private String replaceLastPath(String url, String newPath) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+        try {
+            URI uri = URI.create(url);
+            return uri.getScheme() + "://" + uri.getAuthority() + newPath;
+        } catch (Exception ex) {
+            return url;
+        }
+    }
+
+    /**
+     * 生成思维导图 SVG 并转成 data URL。
+     */
     private String buildSvgMindMapDataUrl(
             String question,
             String answer,
@@ -241,6 +424,9 @@ public class MockMcpToolClient implements McpToolClient {
         return "data:image/svg+xml;base64," + encoded;
     }
 
+    /**
+     * 从回答与证据中提取导图分支。
+     */
     private List<MindBranch> buildMindMapBranches(String answer, List<RetrievalChunk> evidence) {
         List<String> candidates = new ArrayList<>();
 
@@ -313,6 +499,9 @@ public class MockMcpToolClient implements McpToolClient {
         return branches;
     }
 
+    /**
+     * 安全读取候选文本。
+     */
     private String pick(List<String> candidates, int index, String fallback) {
         if (candidates == null || index < 0 || index >= candidates.size()) {
             return fallback;
@@ -321,6 +510,9 @@ public class MockMcpToolClient implements McpToolClient {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    /**
+     * 文本归一化，供导图节点使用。
+     */
     private String normalizeNodeText(String text) {
         if (text == null || text.isBlank()) {
             return "";
@@ -381,6 +573,9 @@ public class MockMcpToolClient implements McpToolClient {
     }
 
     private record MindBranch(String title, String leftLeaf, String rightLeaf) {
+    }
+
+    private record JsonCallResult(String endpoint, JsonNode root) {
     }
 
     private String limit(String text, int maxLen) {

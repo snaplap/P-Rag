@@ -15,6 +15,9 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
+/**
+ * 知识库上传追踪服务。
+ */
 public class KnowledgeTraceService {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeTraceService.class);
@@ -30,6 +33,9 @@ public class KnowledgeTraceService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 保存上传追踪记录。
+     */
     public void save(String knowledgeBaseId, String sessionId, String documentId, String fileName, int chunkCount) {
         KnowledgeBaseTrace trace = new KnowledgeBaseTrace(
                 knowledgeBaseId,
@@ -52,6 +58,9 @@ public class KnowledgeTraceService {
         }
     }
 
+    /**
+     * 列出最近上传追踪记录。
+     */
     public List<KnowledgeBaseTrace> listAll() {
         try {
             List<String> list = redisTemplate.opsForList().range(TRACE_KEY, 0, MAX_TRACE_SIZE - 1L);
@@ -74,6 +83,9 @@ public class KnowledgeTraceService {
         }
     }
 
+    /**
+     * 查找指定知识库最新上传记录。
+     */
     public Optional<KnowledgeBaseTrace> findLatestByKnowledgeBaseId(String knowledgeBaseId) {
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
             return Optional.empty();
@@ -84,6 +96,9 @@ public class KnowledgeTraceService {
                 .findFirst();
     }
 
+    /**
+     * 删除指定知识库追踪记录。
+     */
     public Optional<KnowledgeBaseTrace> deleteByKnowledgeBaseId(String knowledgeBaseId) {
         if (knowledgeBaseId == null || knowledgeBaseId.isBlank()) {
             return Optional.empty();
@@ -127,6 +142,9 @@ public class KnowledgeTraceService {
         return deleted.isPresent() ? deleted : localDeleted;
     }
 
+    /**
+     * 解析追踪 JSON。
+     */
     private KnowledgeBaseTrace parseTrace(String raw) {
         try {
             return objectMapper.readValue(raw, new TypeReference<KnowledgeBaseTrace>() {

@@ -5,6 +5,9 @@ import org.springframework.stereotype.Component;
 
 @Component
 @ConfigurationProperties(prefix = "app.rag")
+/**
+ * RAG 模块配置聚合对象。
+ */
 public class RagProperties {
 
     private final Llm llm = new Llm();
@@ -18,46 +21,79 @@ public class RagProperties {
     private final Mcp mcp = new Mcp();
     private final Metrics metrics = new Metrics();
 
+    /**
+     * 大模型与重排相关配置。
+     */
     public Llm getLlm() {
         return llm;
     }
 
+    /**
+     * SSE 流式输出配置。
+     */
     public Stream getStream() {
         return stream;
     }
 
+    /**
+     * 答案缓存配置。
+     */
     public Cache getCache() {
         return cache;
     }
 
+    /**
+     * 会话历史配置。
+     */
     public Session getSession() {
         return session;
     }
 
+    /**
+     * 向量维度配置。
+     */
     public Embedding getEmbedding() {
         return embedding;
     }
 
+    /**
+     * 检索与阈值配置。
+     */
     public Retrieval getRetrieval() {
         return retrieval;
     }
 
+    /**
+     * 文档切片配置。
+     */
     public Chunking getChunking() {
         return chunking;
     }
 
+    /**
+     * Milvus 存储配置。
+     */
     public Milvus getMilvus() {
         return milvus;
     }
 
+    /**
+     * MCP 工具调用配置。
+     */
     public Mcp getMcp() {
         return mcp;
     }
 
+    /**
+     * 成本估算配置。
+     */
     public Metrics getMetrics() {
         return metrics;
     }
 
+    /**
+     * 流式输出参数。
+     */
     public static class Stream {
         private int chunkSize = 28;
 
@@ -70,6 +106,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * LLM、Embedding 与 Rerank 相关参数。
+     */
     public static class Llm {
         private String provider = "dashscope";
         private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -163,6 +202,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 答案缓存参数。
+     */
     public static class Cache {
         private String keyPrefix = "rag:answer:";
         private long ttlSeconds = 900;
@@ -184,6 +226,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 会话缓存参数。
+     */
     public static class Session {
         private String keyPrefix = "rag:session:";
         private long ttlSeconds = 1800;
@@ -214,6 +259,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 向量维度参数。
+     */
     public static class Embedding {
         private int dimension = 1024;
 
@@ -226,6 +274,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 检索参数。
+     */
     public static class Retrieval {
         private int defaultTopK = 5;
         private double minScore = 0.45d;
@@ -247,6 +298,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 分块参数。
+     */
     public static class Chunking {
         private int maxChars = 500;
         private int overlapChars = 80;
@@ -268,6 +322,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * Milvus 参数。
+     */
     public static class Milvus {
         private String collection = "rag_knowledge_chunks";
         private boolean useRemote;
@@ -298,6 +355,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * MCP 参数。
+     */
     public static class Mcp {
         private boolean useMock = true;
         private String webSearchUrl = "http://localhost:18080/mcp/web-search/search";
@@ -337,6 +397,9 @@ public class RagProperties {
         }
     }
 
+    /**
+     * 成本估算参数。
+     */
     public static class Metrics {
         private double inputCostPer1kTokens = 0.0d;
         private double outputCostPer1kTokens = 0.0d;

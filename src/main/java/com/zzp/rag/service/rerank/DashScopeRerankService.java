@@ -17,6 +17,9 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+/**
+ * DashScope 文本重排实现。
+ */
 public class DashScopeRerankService implements RerankService {
 
     private final RagProperties ragProperties;
@@ -27,6 +30,9 @@ public class DashScopeRerankService implements RerankService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 调用重排模型并返回重新打分后的候选。
+     */
     @Override
     public List<RetrievalChunk> rerank(String question, List<RetrievalChunk> candidates) {
         if (candidates == null || candidates.isEmpty()) {
@@ -112,6 +118,9 @@ public class DashScopeRerankService implements RerankService {
         }
     }
 
+    /**
+     * 优先读取专用重排密钥，缺省回退主 API Key。
+     */
     private String resolveApiKey(RagProperties.Llm llm) {
         String rerankApiKey = llm.getRerankApiKey() == null ? "" : llm.getRerankApiKey().trim();
         if (!rerankApiKey.isBlank()) {

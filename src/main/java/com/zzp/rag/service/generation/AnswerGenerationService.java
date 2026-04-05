@@ -16,14 +16,22 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class AnswerGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(AnswerGenerationService.class);
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
+    private static final Pattern MARKDOWN_HEADING_PATTERN = Pattern.compile("^#{1,6}\\s+.*$");
+    private static final Pattern MARKDOWN_BULLET_PATTERN = Pattern.compile("^[-*+]\\s+.*$");
 
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
@@ -33,6 +41,9 @@ public class AnswerGenerationService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 简化入口：仅返回答案文本。
+     */
     public String generateAnswer(
             String question,
             List<ConversationTurn> history,
@@ -41,6 +52,9 @@ public class AnswerGenerationService {
         return generateAnswerWithDiagnostics(question, history, evidence, sourceType).answer();
     }
 
+    /**
+     * 带诊断的生成入口：优先调用 LLM，失败或低价值输出时回退到本地模板生成。
+     */
     public GenerationOutcome generateAnswerWithDiagnostics(
             String question,
             List<ConversationTurn> history,
@@ -64,48 +78,230 @@ public class AnswerGenerationService {
         return new GenerationOutcome(fallback, false, fallbackReason);
     }
 
+    /**
+     * 本地回退回答生成。
+     * 注意：该回答面向用户展示，因此必须保证自然可读且不暴露内部技术细节。
+     */
     private String fallbackAnswer(
             String question,
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("根据当前可用内容，回答如下：\n");
-
         if (evidence == null || evidence.isEmpty()) {
             if (sourceType == DataSourceType.KNOWLEDGE_BASE) {
-                builder.append("我在当前知识库中没有找到足够信息来回答这个问题。\n");
-                builder.append("你可以尝试换个问法，或补充更相关的文档后再提问。\n");
+                return "我暂时还没在当前知识库里找到可以直接支撑这个问题的证据。"
+                        + "你可以补充更相关的文档，或把问题细化到时间、对象、范围后再问我。";
             } else {
-                builder.append("当前可用资料不足，暂时无法给出可靠结论。\n");
+                return "我基于当前可用资料只能给出有限判断，暂时还不能形成可靠结论。"
+                        + "你可以缩小问题范围，或补充希望重点比较的维度。";
             }
-            return builder.toString();
         }
 
-        builder.append("你问的是：").append(question).append("\n");
-
-        RetrievalChunk primary = evidence.get(0);
-        builder.append(trimSnippet(primary.content(), 260)).append("\n");
-
-        if (evidence.size() > 1) {
-            builder.append("\n补充信息：").append(trimSnippet(evidence.get(1).content(), 160)).append("\n");
-        }
+        StringBuilder builder = new StringBuilder();
+        builder.append(composeEvidenceSummary(question, evidence));
 
         if (history != null && !history.isEmpty()) {
             ConversationTurn latestTurn = history.get(history.size() - 1);
-            builder.append("\n我结合了你上一轮的提问语境：")
+            builder.append("\n\n");
+            builder.append("结合你上一轮提问“")
                     .append(trimSnippet(latestTurn.question(), 48))
-                    .append("。\n");
+                    .append("”，我优先按当前会话语境来组织以上结论。");
+        }
+
+        builder.append("\n\n可参考来源：\n");
+        int refLimit = Math.min(3, evidence.size());
+        for (int i = 0; i < refLimit; i++) {
+            RetrievalChunk chunk = evidence.get(i);
+            builder.append(i + 1)
+                    .append(". ")
+                    .append(readableSource(chunk, i + 1))
+                    .append("\n");
         }
 
         if (sourceType == DataSourceType.WEB) {
-            builder.append("\n以上回答来自已检索到的公开资料。\n");
+            builder.append("\n以上结论主要来自联网检索结果，建议结合你掌握的一手材料再确认。\n");
         } else if (sourceType == DataSourceType.HYBRID) {
-            builder.append("\n以上回答综合了知识库与联网检索信息。\n");
+            builder.append("\n以上结论综合了知识库与联网结果，若你希望我只依据知识库回答，可以继续说明。\n");
         }
-        return builder.toString();
+        return builder.toString().trim();
     }
 
+    /**
+     * 将证据聚合成一句或多句可读摘要。
+     */
+    private String composeEvidenceSummary(String question, List<RetrievalChunk> evidence) {
+        List<String> keyPoints = extractKeyPoints(evidence, 3);
+        if (keyPoints.isEmpty()) {
+            return "我基于当前检索到的片段暂时只能给出有限结论：现有证据不足以覆盖你问题中的全部细节。";
+        }
+
+        if (isProceduralQuestion(question) && keyPoints.size() >= 2) {
+            StringBuilder builder = new StringBuilder();
+            builder.append("基于当前证据，你可以先按这个顺序处理：\n");
+            for (int i = 0; i < keyPoints.size(); i++) {
+                builder.append(i + 1)
+                        .append(". ")
+                        .append(keyPoints.get(i))
+                        .append("\n");
+            }
+            return builder.toString().trim();
+        }
+
+        if (keyPoints.size() == 1) {
+            return "根据当前证据，" + ensureSentenceEnding(keyPoints.get(0));
+        }
+
+        return "根据当前检索到的内容，核心信息是："
+                + String.join("；", keyPoints)
+                + "。";
+    }
+
+    /**
+     * 判断是否为“步骤/操作型”问题。
+     */
+    private boolean isProceduralQuestion(String question) {
+        if (question == null || question.isBlank()) {
+            return false;
+        }
+        String lower = question.toLowerCase(Locale.ROOT);
+        return containsAny(lower, "怎么", "如何", "步骤", "流程", "怎么做", "如何做", "操作", "指南", "排查", "修复");
+    }
+
+    /**
+     * 补全句号，避免回答断句生硬。
+     */
+    private String ensureSentenceEnding(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String normalized = text.trim();
+        if (normalized.endsWith("。") || normalized.endsWith("！") || normalized.endsWith("？")) {
+            return normalized;
+        }
+        return normalized + "。";
+    }
+
+    /**
+     * 字符串是否包含任一关键词。
+     */
+    private boolean containsAny(String text, String... words) {
+        for (String word : words) {
+            if (text.contains(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 来源展示脱敏：优先可读标签，避免输出内部 ID。
+     */
+    private String readableSource(RetrievalChunk chunk, int index) {
+        if (chunk == null) {
+            return "来源" + index;
+        }
+
+        String raw = firstNonBlank(chunk.documentId(), chunk.id());
+        if (raw == null || raw.isBlank()) {
+            return chunk.sourceType() == DataSourceType.WEB
+                    ? "联网资料" + index
+                    : "知识库片段" + index;
+        }
+
+        String normalized = raw.replace("\n", " ").trim();
+        if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+            return normalizeUrlSource(normalized);
+        }
+        if (looksLikeInternalId(normalized)) {
+            return chunk.sourceType() == DataSourceType.WEB
+                    ? "联网资料" + index
+                    : "知识库片段" + index;
+        }
+        return trimSnippet(normalized, 48);
+    }
+
+    /**
+     * 取第一个非空字符串。
+     */
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        if (second != null && !second.isBlank()) {
+            return second;
+        }
+        return null;
+    }
+
+    /**
+     * URL 来源归一化为域名，提升可读性。
+     */
+    private String normalizeUrlSource(String url) {
+        try {
+            URI uri = URI.create(url);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return trimSnippet(url, 48);
+            }
+            return host.startsWith("www.") ? host.substring(4) : host;
+        } catch (Exception ex) {
+            return trimSnippet(url, 48);
+        }
+    }
+
+    /**
+     * 判断来源是否像内部 ID（如 UUID、chunk-xx）。
+     */
+    private boolean looksLikeInternalId(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (UUID_PATTERN.matcher(value).matches()) {
+            return true;
+        }
+        return lower.matches("web-\\d+")
+                || lower.matches("chunk-\\d+")
+                || lower.matches("doc-\\d+")
+                || value.length() > 64;
+    }
+
+    /**
+     * 清洗候选句中的 markdown 标记。
+     */
+    private String sanitizeCandidateLine(String text) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace('\r', ' ').replace('\n', ' ').trim();
+        normalized = normalized.replaceAll("^#{1,6}\\s*", "");
+        normalized = normalized.replaceAll("^[-*+]\\s*", "");
+        normalized = normalized.replaceAll("^\\d+[\\.)]\\s*", "");
+        normalized = normalized.replace("`", "");
+        normalized = normalized.replace("**", "");
+        return normalized.trim();
+    }
+
+    /**
+     * 过滤不适合用于摘要的候选行。
+     */
+    private boolean shouldSkipCandidateLine(String line) {
+        if (line == null || line.isBlank()) {
+            return true;
+        }
+        String normalized = line.trim();
+        if (normalized.length() < 8) {
+            return true;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return MARKDOWN_HEADING_PATTERN.matcher(normalized).matches()
+                || MARKDOWN_BULLET_PATTERN.matcher(normalized).matches()
+                || lower.startsWith("来源")
+                || lower.contains("score=")
+                || lower.contains("http://")
+                || lower.contains("https://");
+    }
+
+    /**
+     * 在配置完整时调用 LLM，返回文本与失败原因。
+     */
     private LlmCallResult askLlmIfConfigured(
             String question,
             List<ConversationTurn> history,
@@ -167,6 +363,9 @@ public class AnswerGenerationService {
         }
     }
 
+    /**
+     * 构造 LLM 消息列表。
+     */
     private List<Map<String, String>> buildMessages(
             String question,
             String evidenceText,
@@ -179,7 +378,8 @@ public class AnswerGenerationService {
                 .append("如果证据不足，明确说不确定，不要编造。")
                 .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
                 .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
-                .append("回答格式使用 Markdown，结构清晰，必要时使用列表。")
+                .append("回答默认使用2-4句自然段，仅当用户明确要求步骤时再使用列表。")
+                .append("来源引用使用可读名称，不要输出内部ID。")
                 .append("来源类型=")
                 .append(labelSource(sourceType));
 
@@ -190,28 +390,39 @@ public class AnswerGenerationService {
         }
 
         String userPrompt = "问题:\n" + question + "\n\n证据:\n" + evidenceText
-                + "\n\n请输出简洁、直接、用户可读的回答。";
+                + "\n\n请输出简洁、直接、用户可读的回答。若证据不足，请明确缺少哪些关键证据。";
         messages.add(Map.of("role", "user", "content", userPrompt));
         return messages;
     }
 
+    /**
+     * 构建证据文本（含来源与分数）供 LLM 参考。
+     */
     private String buildEvidenceText(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return "无可用证据。";
         }
 
         StringBuilder builder = new StringBuilder();
-        int limit = Math.min(4, evidence.size());
+        int limit = Math.min(6, evidence.size());
         for (int i = 0; i < limit; i++) {
             RetrievalChunk chunk = evidence.get(i);
-            builder.append(i + 1)
-                    .append(". ")
-                    .append(trimSnippet(chunk.content(), 400))
+            builder.append("[")
+                    .append(i + 1)
+                    .append("] source=")
+                    .append(trimSnippet(safeSource(chunk), 120))
+                    .append(", score=")
+                    .append(formatScore(chunk.score()))
+                    .append("\n")
+                    .append(trimSnippet(chunk.content(), 420))
                     .append("\n");
         }
         return builder.toString();
     }
 
+    /**
+     * 构建历史对话摘要，默认保留最近两轮。
+     */
     private String buildHistoryText(List<ConversationTurn> history) {
         if (history == null || history.isEmpty()) {
             return "";
@@ -227,10 +438,16 @@ public class AnswerGenerationService {
         return builder.toString();
     }
 
+    /**
+     * 判空工具。
+     */
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
+    /**
+     * 文本裁剪，超长加省略号。
+     */
     private String trimSnippet(String text, int maxLen) {
         if (text == null || text.isBlank()) {
             return "";
@@ -242,6 +459,9 @@ public class AnswerGenerationService {
         return normalized.substring(0, maxLen) + "...";
     }
 
+    /**
+     * 判断 LLM 输出是否属于低价值模板化回答。
+     */
     private boolean isLowValueAnswer(String answer) {
         String normalized = answer == null ? "" : answer.replaceAll("\\s+", "").toLowerCase();
         return normalized.contains("没有提供任何实质性的文章信息或摘要")
@@ -249,9 +469,65 @@ public class AnswerGenerationService {
                 || normalized.contains("没有提供文章信息")
                 || normalized.contains("无法根据提供的内容回答")
                 || normalized.contains("无法确定这篇文章的具体内容")
-                || normalized.contains("无法确定文章具体内容");
+                || normalized.contains("无法确定文章具体内容")
+                || normalized.contains("根据当前可用内容，回答如下")
+                || normalized.contains("##结论")
+                || normalized.contains("##依据要点");
     }
 
+    /**
+     * 从证据中抽取核心句，去重并过滤噪声。
+     */
+    private List<String> extractKeyPoints(List<RetrievalChunk> evidence, int maxPoints) {
+        List<String> points = new ArrayList<>();
+        if (evidence == null || evidence.isEmpty()) {
+            return points;
+        }
+
+        Set<String> dedup = new LinkedHashSet<>();
+        int scanLimit = Math.min(evidence.size(), Math.max(2, maxPoints * 3));
+        for (int i = 0; i < scanLimit; i++) {
+            RetrievalChunk chunk = evidence.get(i);
+            if (chunk == null || chunk.content() == null || chunk.content().isBlank()) {
+                continue;
+            }
+
+            String[] sentences = chunk.content().split("[。！？!?\\n]");
+            for (String sentence : sentences) {
+                String candidate = sanitizeCandidateLine(sentence);
+                if (shouldSkipCandidateLine(candidate)) {
+                    continue;
+                }
+                String normalizedKey = candidate.replaceAll("\\s+", "")
+                        .toLowerCase(Locale.ROOT);
+                if (dedup.add(normalizedKey)) {
+                    points.add(trimSnippet(candidate, 96));
+                    if (points.size() >= maxPoints) {
+                        return points;
+                    }
+                }
+            }
+        }
+        return points;
+    }
+
+    /**
+     * 安全来源展示。
+     */
+    private String safeSource(RetrievalChunk chunk) {
+        return readableSource(chunk, 1);
+    }
+
+    /**
+     * 分数格式化输出。
+     */
+    private String formatScore(double score) {
+        return String.format("%.3f", Math.max(0.0d, Math.min(1.0d, score)));
+    }
+
+    /**
+     * 来源类型展示文本。
+     */
     private String labelSource(DataSourceType sourceType) {
         return switch (sourceType) {
             case KNOWLEDGE_BASE -> "知识库";

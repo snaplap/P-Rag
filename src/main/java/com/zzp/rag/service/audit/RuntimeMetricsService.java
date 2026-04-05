@@ -19,6 +19,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
+/**
+ * 运行时指标服务，负责汇总延迟、成本、检索质量与回答质量。
+ */
 public class RuntimeMetricsService {
 
     private static final Pattern EN_WORD_PATTERN = Pattern.compile("[A-Za-z0-9_]+(?:[-'][A-Za-z0-9_]+)?");
@@ -33,6 +36,9 @@ public class RuntimeMetricsService {
         this.ragProperties = ragProperties;
     }
 
+    /**
+     * 记录请求开始时间并返回追踪对象。
+     */
     public RequestTracker startRequest() {
         long nowMs = System.currentTimeMillis();
         totalRequests.incrementAndGet();
@@ -41,10 +47,16 @@ public class RuntimeMetricsService {
         return new RequestTracker(nowMs, System.nanoTime());
     }
 
+    /**
+     * 标记一次请求错误。
+     */
     public void markError() {
         totalErrors.incrementAndGet();
     }
 
+    /**
+     * 构建前端展示和排障使用的指标结构。
+     */
     public Map<String, Object> buildLogMetrics(
             RequestTracker tracker,
             String question,
@@ -76,6 +88,17 @@ public class RuntimeMetricsService {
         boolean emptyAnswer = answer == null || answer.trim().isEmpty();
         boolean hasReference = hasReference(answer, evidence);
         boolean containsFallback = containsFallback(answer);
+        double avgScore = averageEvidenceScore(evidence);
+        double highQualityRatio = highQualityEvidenceRatio(evidence, 0.72d);
+        int answerLength = answer == null ? 0 : answer.trim().length();
+        double qualityScore = computeQualityScore(
+                avgScore,
+                highQualityRatio,
+                duplicateRatio,
+                emptyAnswer,
+                containsFallback,
+                hasReference,
+                answerLength);
 
         Map<String, Object> systemHealth = new LinkedHashMap<>();
         systemHealth.put("响应时间(ms)", latencyMs);
@@ -108,14 +131,33 @@ public class RuntimeMetricsService {
         structuralRules.put("是否包含“我不知道”类fallback", yesNo(containsFallback));
         structuralRules.put("来源类型", labelSource(sourceType));
 
+        Map<String, Object> qualityLayer = new LinkedHashMap<>();
+        qualityLayer.put("回答质量评分(0-100)", formatDecimal(qualityScore));
+        qualityLayer.put("平均证据分", formatDecimal(avgScore * 100.0d) + "%");
+        qualityLayer.put("高质量证据占比", formatPercent(highQualityRatio * 100.0d));
+        qualityLayer.put("回答长度(字符)", answerLength);
+        qualityLayer.put("优化建议", buildOptimizationAdvice(
+                retrievalTokens,
+                duplicateRatio,
+                avgScore,
+                highQualityRatio,
+                containsFallback,
+                hasReference,
+                emptyAnswer,
+                answerLength));
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("系统健康度", systemHealth);
         result.put("检索层指标", retrievalLayer);
         result.put("成本指标", costLayer);
         result.put("结构性规则", structuralRules);
+        result.put("回答质量", qualityLayer);
         return result;
     }
 
+    /**
+     * 清理 1 分钟窗口之外的请求时间戳。
+     */
     private void trimOldRequests(long nowMs) {
         long cutoff = nowMs - 60_000L;
         Long head = recentRequestTimestamps.peekFirst();
@@ -125,6 +167,9 @@ public class RuntimeMetricsService {
         }
     }
 
+    /**
+     * 统计证据总字符数。
+     */
     private int totalContextChars(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return 0;
@@ -138,6 +183,9 @@ public class RuntimeMetricsService {
         return sum;
     }
 
+    /**
+     * 估算证据总 token 数。
+     */
     private int totalEvidenceTokens(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return 0;
@@ -151,6 +199,9 @@ public class RuntimeMetricsService {
         return sum;
     }
 
+    /**
+     * 计算上下文重复率。
+     */
     private double contextDuplicateRatio(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return 0.0d;
@@ -172,6 +223,9 @@ public class RuntimeMetricsService {
         return Math.max(0.0d, 1.0d - (unique * 1.0d / normalized.size()));
     }
 
+    /**
+     * 计算知识库证据命中占比。
+     */
     private double knowledgeBaseHitRatio(List<RetrievalChunk> evidence) {
         if (evidence == null || evidence.isEmpty()) {
             return 0.0d;
@@ -193,6 +247,115 @@ public class RuntimeMetricsService {
         return kbHits * 1.0d / total;
     }
 
+    /**
+     * 计算证据平均分。
+     */
+    private double averageEvidenceScore(List<RetrievalChunk> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return 0.0d;
+        }
+
+        double sum = 0.0d;
+        long count = 0L;
+        for (RetrievalChunk chunk : evidence) {
+            if (chunk == null) {
+                continue;
+            }
+            sum += Math.max(0.0d, Math.min(1.0d, chunk.score()));
+            count++;
+        }
+        if (count == 0L) {
+            return 0.0d;
+        }
+        return sum / count;
+    }
+
+    /**
+     * 计算高质量证据占比。
+     */
+    private double highQualityEvidenceRatio(List<RetrievalChunk> evidence, double threshold) {
+        if (evidence == null || evidence.isEmpty()) {
+            return 0.0d;
+        }
+
+        long total = evidence.stream().filter(v -> v != null).count();
+        if (total == 0L) {
+            return 0.0d;
+        }
+
+        long highQuality = evidence.stream()
+                .filter(v -> v != null && v.score() >= threshold)
+                .count();
+        return highQuality * 1.0d / total;
+    }
+
+    /**
+     * 综合计算回答质量评分。
+     */
+    private double computeQualityScore(
+            double avgScore,
+            double highQualityRatio,
+            double duplicateRatio,
+            boolean emptyAnswer,
+            boolean containsFallback,
+            boolean hasReference,
+            int answerLength) {
+        double score = 0.0d;
+        score += avgScore * 45.0d;
+        score += highQualityRatio * 20.0d;
+        score += (1.0d - Math.min(1.0d, duplicateRatio)) * 10.0d;
+        score += hasReference ? 10.0d : 0.0d;
+        score += answerLength >= 120 ? 10.0d : 5.0d;
+        if (emptyAnswer) {
+            score -= 30.0d;
+        }
+        if (containsFallback) {
+            score -= 15.0d;
+        }
+        return Math.max(0.0d, Math.min(100.0d, score));
+    }
+
+    /**
+     * 生成优化建议文本。
+     */
+    private String buildOptimizationAdvice(
+            int retrievalTokens,
+            double duplicateRatio,
+            double avgScore,
+            double highQualityRatio,
+            boolean containsFallback,
+            boolean hasReference,
+            boolean emptyAnswer,
+            int answerLength) {
+        List<String> advices = new ArrayList<>();
+
+        if (retrievalTokens < 180) {
+            advices.add("上下文偏短：可提高 topK 或补充更完整文档");
+        }
+        if (duplicateRatio >= 0.30d) {
+            advices.add("上下文重复偏高：可优化切片粒度和重叠参数");
+        }
+        if (avgScore < 0.55d || highQualityRatio < 0.4d) {
+            advices.add("证据相关性偏低：建议优化检索阈值与重排模型");
+        }
+        if (!hasReference) {
+            advices.add("回答缺少来源：建议在生成提示词中强制输出引用");
+        }
+        if (containsFallback) {
+            advices.add("命中回退模板：优先排查 LLM 配置和联网检索链路");
+        }
+        if (emptyAnswer || answerLength < 80) {
+            advices.add("回答过短：建议增加证据条数并放宽生成长度");
+        }
+        if (advices.isEmpty()) {
+            advices.add("当前回答质量稳定，可继续通过标注数据做针对性评估");
+        }
+        return String.join("；", advices);
+    }
+
+    /**
+     * 估算输入 token。
+     */
     private int estimateInputTokens(String question, List<ConversationTurn> history, List<RetrievalChunk> evidence) {
         int sum = estimateTokens(question);
         if (history != null) {
@@ -214,6 +377,9 @@ public class RuntimeMetricsService {
         return sum;
     }
 
+    /**
+     * 估算文本 token。
+     */
     private int estimateTokens(String text) {
         if (text == null || text.isBlank()) {
             return 0;
@@ -237,6 +403,9 @@ public class RuntimeMetricsService {
         return Math.max(1, approx);
     }
 
+    /**
+     * 判断回答是否包含来源信息。
+     */
     private boolean hasReference(String answer, List<RetrievalChunk> evidence) {
         if (evidence != null && !evidence.isEmpty()) {
             return true;
@@ -252,6 +421,9 @@ public class RuntimeMetricsService {
                 || lower.contains("引用");
     }
 
+    /**
+     * 判断回答是否命中 fallback 语气。
+     */
     private boolean containsFallback(String answer) {
         if (answer == null || answer.isBlank()) {
             return false;
@@ -264,6 +436,9 @@ public class RuntimeMetricsService {
                 || lower.contains("不清楚");
     }
 
+    /**
+     * 判断上下文长度区间。
+     */
     private String contextLengthJudgement(int tokens) {
         if (tokens <= 0) {
             return "无上下文";
@@ -277,12 +452,18 @@ public class RuntimeMetricsService {
         return "正常";
     }
 
+    /**
+     * 估算请求成本。
+     */
     private double computeCost(int inputTokens, int outputTokens) {
         double inputCost = (inputTokens / 1000.0d) * ragProperties.getMetrics().getInputCostPer1kTokens();
         double outputCost = (outputTokens / 1000.0d) * ragProperties.getMetrics().getOutputCostPer1kTokens();
         return inputCost + outputCost;
     }
 
+    /**
+     * 来源类型标签。
+     */
     private String labelSource(DataSourceType sourceType) {
         if (sourceType == null) {
             return "未知";
@@ -294,20 +475,32 @@ public class RuntimeMetricsService {
         };
     }
 
+    /**
+     * 货币格式化。
+     */
     private String formatCurrency(double value) {
         return String.format(Locale.ROOT, "￥%.6f", Math.max(0.0d, value));
     }
 
+    /**
+     * 百分比格式化。
+     */
     private String formatPercent(double percent) {
         DecimalFormat format = new DecimalFormat("0.00");
         return format.format(Math.max(0.0d, percent)) + "%";
     }
 
+    /**
+     * 小数格式化。
+     */
     private String formatDecimal(double value) {
         DecimalFormat format = new DecimalFormat("0.00");
         return format.format(Math.max(0.0d, value));
     }
 
+    /**
+     * 布尔值转是/否。
+     */
     private String yesNo(boolean value) {
         return value ? "是" : "否";
     }

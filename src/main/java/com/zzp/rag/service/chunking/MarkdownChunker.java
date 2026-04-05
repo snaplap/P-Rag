@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 @Component
 public class MarkdownChunker {
 
-    private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[銆傦紒锛?!?锛?])\\s+");
+    private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[。！？?!])\\s+");
     private static final Pattern HEADING = Pattern.compile("^#{1,6}\\s+.*$");
 
     private final RagProperties ragProperties;
@@ -19,6 +19,10 @@ public class MarkdownChunker {
         this.ragProperties = ragProperties;
     }
 
+    /**
+     * 将 Markdown 按“标题 -> 段落 -> 句子”分层切分为可检索片段。
+     * 注意：这里优先保持语义完整，而不是机械按字符数硬切。
+     */
     public List<String> split(String markdown) {
         int maxChars = Math.max(200, ragProperties.getChunking().getMaxChars());
         int overlapChars = Math.max(0, ragProperties.getChunking().getOverlapChars());
@@ -44,7 +48,7 @@ public class MarkdownChunker {
                     continue;
                 }
 
-                // 鐭浼樺厛鎸夋鑱氬悎锛岄伩鍏嶈涔夎鍒囩銆?
+                // 短段优先直接聚合，尽量避免语义被过早打散。
                 if (paragraph.length() <= maxChars) {
                     if (buffer.length() + paragraph.length() + 1 > maxChars) {
                         flushChunk(chunks, buffer, overlapChars);
@@ -53,7 +57,7 @@ public class MarkdownChunker {
                     continue;
                 }
 
-                // 瓒呴暱娈垫寜鍙ュ瓙鍒囷紝灏介噺鍦ㄨ嚜鐒惰涔夎竟鐣屾柇寮€銆?
+                // 超长段落按句子继续切，优先在自然语义边界断开。
                 String[] sentences = SENTENCE_SPLIT.split(paragraph);
                 for (String sentence : sentences) {
                     String seg = sentence.trim();
@@ -79,6 +83,9 @@ public class MarkdownChunker {
         return deduplicate(chunks);
     }
 
+    /**
+     * 按 Markdown 标题分节，确保不同主题不会混到同一个 chunk。
+     */
     private List<String> splitByHeading(String markdown) {
         List<String> sections = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -98,6 +105,9 @@ public class MarkdownChunker {
         return sections;
     }
 
+    /**
+     * 按空行分段，保留段落级语义结构。
+     */
     private List<String> splitByParagraph(String section) {
         List<String> paragraphs = new ArrayList<>();
         for (String block : section.split("\\n\\s*\\n+")) {
@@ -112,6 +122,10 @@ public class MarkdownChunker {
         return paragraphs;
     }
 
+    /**
+     * 在没有可用句子边界时执行硬切分。
+     * 注意：通过 overlap 保留上下文尾部，减轻跨片段信息断裂。
+     */
     private void splitHard(List<String> chunks, String text, int maxChars, int overlapChars) {
         int start = 0;
         while (start < text.length()) {
@@ -127,6 +141,9 @@ public class MarkdownChunker {
         }
     }
 
+    /**
+     * 将当前缓冲区落盘为 chunk，并根据 overlap 复制尾部上下文。
+     */
     private void flushChunk(List<String> chunks, StringBuilder buffer, int overlapChars) {
         if (buffer.length() == 0) {
             return;
@@ -146,6 +163,9 @@ public class MarkdownChunker {
         }
     }
 
+    /**
+     * 统一追加文本，块内以换行拼接。
+     */
     private void append(StringBuilder builder, String text) {
         if (builder.length() > 0) {
             builder.append('\n');
@@ -153,6 +173,9 @@ public class MarkdownChunker {
         builder.append(text);
     }
 
+    /**
+     * 去除相邻重复 chunk，降低检索阶段的重复召回。
+     */
     private List<String> deduplicate(List<String> chunks) {
         List<String> unique = new ArrayList<>();
         String prev = null;
@@ -170,5 +193,3 @@ public class MarkdownChunker {
         return unique;
     }
 }
-
-

@@ -14,6 +14,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
+/**
+ * DashScope/OpenAI 兼容接口的向量化实现。
+ */
 public class DashScopeEmbeddingService implements EmbeddingService {
 
     private final RagProperties ragProperties;
@@ -24,6 +27,9 @@ public class DashScopeEmbeddingService implements EmbeddingService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 调用远端 embedding API 生成向量。
+     */
     @Override
     public double[] embed(String text) {
         int dim = Math.max(1, ragProperties.getEmbedding().getDimension());
@@ -85,6 +91,9 @@ public class DashScopeEmbeddingService implements EmbeddingService {
         }
     }
 
+    /**
+     * 向量维度对齐：不足补零，超出截断。
+     */
     private double[] reshape(double[] source, int targetDim) {
         if (source.length == targetDim) {
             return source;
