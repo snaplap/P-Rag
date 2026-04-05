@@ -19,6 +19,7 @@ import com.zzp.rag.service.generation.AnswerGenerationService;
 import com.zzp.rag.service.mcp.McpRoutingDecisionService;
 import com.zzp.rag.service.mcp.McpToolClient;
 import com.zzp.rag.service.retrieval.RetrievalService;
+import com.zzp.rag.service.rerank.RerankService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,7 @@ public class RagOrchestratorService {
     private final McpToolClient mcpToolClient;
     private final McpRoutingDecisionService mcpRoutingDecisionService;
     private final WebSearchVectorCacheService webSearchVectorCacheService;
+    private final RerankService rerankService;
     private final AnswerGenerationService answerGenerationService;
     private final RagEvaluationService ragEvaluationService;
     private final QaAuditService qaAuditService;
@@ -58,6 +60,7 @@ public class RagOrchestratorService {
             McpToolClient mcpToolClient,
             McpRoutingDecisionService mcpRoutingDecisionService,
             WebSearchVectorCacheService webSearchVectorCacheService,
+            RerankService rerankService,
             AnswerGenerationService answerGenerationService,
             RagEvaluationService ragEvaluationService,
             QaAuditService qaAuditService,
@@ -69,6 +72,7 @@ public class RagOrchestratorService {
         this.mcpToolClient = mcpToolClient;
         this.mcpRoutingDecisionService = mcpRoutingDecisionService;
         this.webSearchVectorCacheService = webSearchVectorCacheService;
+        this.rerankService = rerankService;
         this.answerGenerationService = answerGenerationService;
         this.ragEvaluationService = ragEvaluationService;
         this.qaAuditService = qaAuditService;
@@ -175,6 +179,8 @@ public class RagOrchestratorService {
                 evidence = kbEvidence;
                 sourceType = DataSourceType.KNOWLEDGE_BASE;
             }
+
+            evidence = rerankAndFinalizeEvidence(question, evidence, topK);
             long retrievalMs = Math.max(0L, (System.nanoTime() - retrievalStart) / 1_000_000L);
 
             long generationStart = System.nanoTime();
@@ -281,6 +287,55 @@ public class RagOrchestratorService {
             }
         }
         return merged;
+    }
+
+    /**
+     * 在最终证据集合上统一重排，并收敛到 topK。
+     */
+    private List<RetrievalChunk> rerankAndFinalizeEvidence(String question, List<RetrievalChunk> evidence, int topK) {
+        if (evidence == null || evidence.isEmpty()) {
+            return List.of();
+        }
+
+        int candidateLimit = Math.max(topK, Math.min(8, evidence.size()));
+        List<RetrievalChunk> candidates = deduplicateInOrder(evidence, candidateLimit);
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            List<RetrievalChunk> reranked = rerankService.rerank(question, candidates);
+            return deduplicateInOrder(reranked, Math.max(1, topK));
+        } catch (RuntimeException ex) {
+            log.warn("Rerank failed after evidence merge, fallback to non-rerank evidence: {}", ex.getMessage());
+            return deduplicateInOrder(candidates, Math.max(1, topK));
+        }
+    }
+
+    /**
+     * 保序去重并限制长度，避免重复片段挤占上下文。
+     */
+    private List<RetrievalChunk> deduplicateInOrder(List<RetrievalChunk> chunks, int limit) {
+        if (chunks == null || chunks.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+
+        List<RetrievalChunk> deduped = new ArrayList<>();
+        Set<String> dedup = new LinkedHashSet<>();
+        for (RetrievalChunk chunk : chunks) {
+            if (deduped.size() >= limit) {
+                break;
+            }
+            if (chunk == null || chunk.content() == null || chunk.content().isBlank()) {
+                continue;
+            }
+
+            String key = evidenceKey(chunk);
+            if (dedup.add(key)) {
+                deduped.add(chunk);
+            }
+        }
+        return deduped;
     }
 
     /**

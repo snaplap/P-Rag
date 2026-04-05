@@ -3,7 +3,6 @@ package com.zzp.rag.service.retrieval;
 import com.zzp.rag.domain.model.DataSourceType;
 import com.zzp.rag.domain.model.RetrievalChunk;
 import com.zzp.rag.service.embedding.EmbeddingService;
-import com.zzp.rag.service.rerank.RerankService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -33,9 +32,7 @@ class RetrievalServiceTest {
                 return 0;
             }
         };
-        RerankService rerankService = (question, candidates) -> candidates;
-
-        RetrievalService service = new RetrievalService(embeddingService, vectorStore, rerankService);
+        RetrievalService service = new RetrievalService(embeddingService, vectorStore);
         List<RetrievalChunk> result = service.retrieve("如何评估RAG", 3, "kb-1");
 
         Assertions.assertEquals(2, result.size());
@@ -45,7 +42,7 @@ class RetrievalServiceTest {
     }
 
     @Test
-    void shouldFallbackToVectorCandidatesWhenRerankThrows() {
+    void shouldReturnVectorCandidatesWithoutRerankDependency() {
         EmbeddingService embeddingService = text -> new double[] { 0.1d };
         VectorStore vectorStore = new VectorStore() {
             @Override
@@ -67,11 +64,7 @@ class RetrievalServiceTest {
                 return 0;
             }
         };
-        RerankService rerankService = (question, candidates) -> {
-            throw new RuntimeException("rerank failure");
-        };
-
-        RetrievalService service = new RetrievalService(embeddingService, vectorStore, rerankService);
+        RetrievalService service = new RetrievalService(embeddingService, vectorStore);
         List<RetrievalChunk> result = service.retrieve("给出建议", 1, "kb-1");
 
         Assertions.assertEquals(1, result.size());

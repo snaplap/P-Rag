@@ -46,6 +46,9 @@ app:
       max-history: 3
     embedding:
       dimension: ${EMBEDDING_DIMENSION:1024}
+      batch-size: ${EMBEDDING_BATCH_SIZE:10}
+      cache-enabled: ${EMBEDDING_CACHE_ENABLED:true}
+      cache-ttl-seconds: ${EMBEDDING_CACHE_TTL_SECONDS:604800}
     retrieval:
       default-top-k: 5
       min-score: 0.45

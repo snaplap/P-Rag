@@ -3,6 +3,7 @@ package com.zzp.rag.service.cache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zzp.rag.domain.model.DataSourceType;
 import com.zzp.rag.domain.model.RetrievalChunk;
+import com.zzp.rag.config.RagProperties;
 import com.zzp.rag.service.embedding.EmbeddingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,14 +34,20 @@ public class WebSearchVectorCacheService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final EmbeddingService embeddingService;
+    private final EmbeddingVectorCacheService embeddingVectorCacheService;
+    private final RagProperties ragProperties;
 
     public WebSearchVectorCacheService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
-            EmbeddingService embeddingService) {
+            EmbeddingService embeddingService,
+            EmbeddingVectorCacheService embeddingVectorCacheService,
+            RagProperties ragProperties) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.embeddingService = embeddingService;
+        this.embeddingVectorCacheService = embeddingVectorCacheService;
+        this.ragProperties = ragProperties;
     }
 
     /**
@@ -50,10 +59,25 @@ public class WebSearchVectorCacheService {
         }
 
         try {
-            List<Map<String, Object>> vectorized = webEvidence.stream()
+            List<RetrievalChunk> webChunks = webEvidence.stream()
                     .filter(v -> v != null && v.sourceType() == DataSourceType.WEB)
-                    .map(this::toVectorDoc)
                     .toList();
+
+            if (webChunks.isEmpty()) {
+                return;
+            }
+
+            Map<String, double[]> vectorsByText = buildVectorsByText(webChunks);
+            List<Map<String, Object>> vectorized = new ArrayList<>(webChunks.size());
+            for (RetrievalChunk chunk : webChunks) {
+                String text = chunk.content() == null ? "" : chunk.content().trim();
+                double[] vector = vectorsByText.get(text);
+                if (vector == null) {
+                    vector = embeddingService.embed(text);
+                    embeddingVectorCacheService.putBatch(Map.of(text, vector));
+                }
+                vectorized.add(toVectorDoc(chunk, vector));
+            }
 
             if (vectorized.isEmpty()) {
                 return;
@@ -75,15 +99,56 @@ public class WebSearchVectorCacheService {
     /**
      * 将检索片段转换为可序列化向量文档。
      */
-    private Map<String, Object> toVectorDoc(RetrievalChunk chunk) {
+    private Map<String, Object> toVectorDoc(RetrievalChunk chunk, double[] vector) {
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("id", chunk.id());
         doc.put("documentId", chunk.documentId());
         doc.put("content", chunk.content());
         doc.put("score", chunk.score());
         doc.put("source", chunk.sourceType().name());
-        doc.put("vector", embeddingService.embed(chunk.content()));
+        doc.put("vector", vector);
         return doc;
+    }
+
+    private Map<String, double[]> buildVectorsByText(List<RetrievalChunk> chunks) {
+        List<String> uniqueTexts = new ArrayList<>(new LinkedHashSet<>(chunks.stream()
+                .map(c -> c.content() == null ? "" : c.content().trim())
+                .filter(text -> !text.isBlank())
+                .toList()));
+
+        Map<String, double[]> vectorsByText = new LinkedHashMap<>(embeddingVectorCacheService.getBatch(uniqueTexts));
+        List<String> misses = uniqueTexts.stream()
+                .filter(text -> !vectorsByText.containsKey(text))
+                .toList();
+        if (misses.isEmpty()) {
+            return vectorsByText;
+        }
+
+        int batchSize = normalizeBatchSize(ragProperties.getEmbedding().getBatchSize());
+        Map<String, double[]> fresh = new LinkedHashMap<>();
+        for (int start = 0; start < misses.size(); start += batchSize) {
+            int end = Math.min(start + batchSize, misses.size());
+            List<String> batch = misses.subList(start, end);
+            List<double[]> vectors = embeddingService.embedBatch(batch);
+            for (int i = 0; i < batch.size(); i++) {
+                if (i < vectors.size() && vectors.get(i) != null) {
+                    fresh.put(batch.get(i), vectors.get(i));
+                }
+            }
+        }
+
+        if (!fresh.isEmpty()) {
+            embeddingVectorCacheService.putBatch(fresh);
+            vectorsByText.putAll(fresh);
+        }
+        return vectorsByText;
+    }
+
+    private int normalizeBatchSize(int configured) {
+        if (configured < 10) {
+            return 10;
+        }
+        return Math.min(configured, 100);
     }
 
     /**

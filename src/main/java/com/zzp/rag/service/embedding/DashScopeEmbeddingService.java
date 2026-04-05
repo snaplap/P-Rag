@@ -10,14 +10,19 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
 
 @Service
 /**
  * DashScope/OpenAI 兼容接口的向量化实现。
  */
 public class DashScopeEmbeddingService implements EmbeddingService {
+
+    // DashScope embedding 接口单次批量输入稳定上限通常为 10。
+    private static final int MAX_INPUTS_PER_REQUEST = 10;
 
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
@@ -33,8 +38,96 @@ public class DashScopeEmbeddingService implements EmbeddingService {
     @Override
     public double[] embed(String text) {
         int dim = Math.max(1, ragProperties.getEmbedding().getDimension());
-        if (text == null || text.isBlank()) {
+        String safeText = text == null ? "" : text.trim();
+        if (safeText.isBlank()) {
             return new double[dim];
+        }
+
+        try {
+            List<double[]> vectors = requestEmbeddings(List.of(safeText));
+            if (vectors.isEmpty() || vectors.get(0) == null) {
+                return new double[dim];
+            }
+            return vectors.get(0);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Call DashScope embedding failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * 批量调用远端 embedding API 生成向量。
+     */
+    @Override
+    public List<double[]> embedBatch(List<String> texts) {
+        int dim = Math.max(1, ragProperties.getEmbedding().getDimension());
+        if (texts == null || texts.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> sanitized = new ArrayList<>(texts.size());
+        for (String text : texts) {
+            sanitized.add(text == null ? "" : text);
+        }
+
+        List<Integer> nonBlankIndexes = new ArrayList<>();
+        List<String> requestInputs = new ArrayList<>();
+        for (int i = 0; i < sanitized.size(); i++) {
+            String text = sanitized.get(i);
+            if (!text.isBlank()) {
+                nonBlankIndexes.add(i);
+                requestInputs.add(text);
+            }
+        }
+
+        List<double[]> output = new ArrayList<>(sanitized.size());
+        for (int i = 0; i < sanitized.size(); i++) {
+            output.add(new double[dim]);
+        }
+        if (requestInputs.isEmpty()) {
+            return output;
+        }
+
+        try {
+            int requestBatchSize = normalizeRequestBatchSize(ragProperties.getEmbedding().getBatchSize());
+            for (int start = 0; start < requestInputs.size(); start += requestBatchSize) {
+                int end = Math.min(start + requestBatchSize, requestInputs.size());
+                List<String> subBatch = requestInputs.subList(start, end);
+                List<double[]> vectors = requestEmbeddings(subBatch);
+                if (vectors.size() != subBatch.size()) {
+                    throw new IllegalStateException(
+                            "Batch embedding result size mismatch: expected=" + subBatch.size() + ", actual="
+                                    + vectors.size() + ", subBatchStart=" + start);
+                }
+
+                for (int i = 0; i < vectors.size(); i++) {
+                    double[] vector = vectors.get(i);
+                    if (vector == null || vector.length == 0) {
+                        throw new IllegalStateException(
+                                "Batch embedding returned empty vector at subBatchIndex=" + i + ", subBatchStart="
+                                        + start);
+                    }
+                    int originalIndex = nonBlankIndexes.get(start + i);
+                    output.set(originalIndex, vector);
+                }
+            }
+            return output;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Call DashScope batch embedding failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private int normalizeRequestBatchSize(int configuredBatchSize) {
+        int safe = configuredBatchSize <= 0 ? MAX_INPUTS_PER_REQUEST : configuredBatchSize;
+        return Math.max(1, Math.min(safe, MAX_INPUTS_PER_REQUEST));
+    }
+
+    /**
+     * 统一 embedding 调用入口：单条时发送 string，批量时发送 list。
+     */
+    private List<double[]> requestEmbeddings(List<String> inputs) throws Exception {
+        int dim = Math.max(1, ragProperties.getEmbedding().getDimension());
+        if (inputs == null || inputs.isEmpty()) {
+            return List.of();
         }
 
         RagProperties.Llm llm = ragProperties.getLlm();
@@ -43,52 +136,53 @@ public class DashScopeEmbeddingService implements EmbeddingService {
             throw new IllegalStateException("LLM_API_KEY/DASHSCOPE_API_KEY is required for embedding");
         }
 
-        try {
-            String endpoint = llm.getBaseUrl().endsWith("/")
-                    ? llm.getBaseUrl() + "embeddings"
-                    : llm.getBaseUrl() + "/embeddings";
+        String endpoint = llm.getBaseUrl().endsWith("/")
+                ? llm.getBaseUrl() + "embeddings"
+                : llm.getBaseUrl() + "/embeddings";
 
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("model", llm.getEmbeddingModel());
-            payload.put("input", text);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", llm.getEmbeddingModel());
+        payload.put("input", inputs.size() == 1 ? inputs.get(0) : inputs);
 
-            String body = objectMapper.writeValueAsString(payload);
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(Math.max(1000, llm.getConnectTimeoutMs())))
-                    .build();
+        String body = objectMapper.writeValueAsString(payload);
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(Math.max(1000, llm.getConnectTimeoutMs())))
+                .build();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(Duration.ofMillis(Math.max(3000, llm.getReadTimeoutMs())))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(Duration.ofMillis(Math.max(3000, llm.getReadTimeoutMs())))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Embedding API status=" + response.statusCode());
-            }
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException(
+                    "Embedding API status=" + response.statusCode() + ", body=" + response.body());
+        }
 
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode data = root.path("data");
-            if (!data.isArray() || data.isEmpty()) {
-                throw new IllegalStateException("Embedding API returns empty data");
-            }
+        JsonNode root = objectMapper.readTree(response.body());
+        JsonNode data = root.path("data");
+        if (!data.isArray() || data.isEmpty()) {
+            throw new IllegalStateException("Embedding API returns empty data");
+        }
 
-            JsonNode vectorNode = data.get(0).path("embedding");
+        List<double[]> vectors = new ArrayList<>(data.size());
+        for (int i = 0; i < data.size(); i++) {
+            JsonNode vectorNode = data.get(i).path("embedding");
             if (!vectorNode.isArray() || vectorNode.isEmpty()) {
-                throw new IllegalStateException("Embedding vector not found");
+                throw new IllegalStateException("Embedding vector not found at index=" + i);
             }
 
             double[] vector = new double[vectorNode.size()];
-            for (int i = 0; i < vectorNode.size(); i++) {
-                vector[i] = vectorNode.get(i).asDouble(0.0d);
+            for (int j = 0; j < vectorNode.size(); j++) {
+                vector[j] = vectorNode.get(j).asDouble(0.0d);
             }
-            return reshape(vector, dim);
-        } catch (Exception ex) {
-            throw new IllegalStateException("Call DashScope embedding failed: " + ex.getMessage(), ex);
+            vectors.add(reshape(vector, dim));
         }
+        return vectors;
     }
 
     /**

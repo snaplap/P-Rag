@@ -264,6 +264,9 @@ public class RagProperties {
      */
     public static class Embedding {
         private int dimension = 1024;
+        private int batchSize = 10;
+        private boolean cacheEnabled = true;
+        private long cacheTtlSeconds = 604800;
 
         public int getDimension() {
             return dimension;
@@ -271,6 +274,30 @@ public class RagProperties {
 
         public void setDimension(int dimension) {
             this.dimension = dimension;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public boolean isCacheEnabled() {
+            return cacheEnabled;
+        }
+
+        public void setCacheEnabled(boolean cacheEnabled) {
+            this.cacheEnabled = cacheEnabled;
+        }
+
+        public long getCacheTtlSeconds() {
+            return cacheTtlSeconds;
+        }
+
+        public void setCacheTtlSeconds(long cacheTtlSeconds) {
+            this.cacheTtlSeconds = cacheTtlSeconds;
         }
     }
 

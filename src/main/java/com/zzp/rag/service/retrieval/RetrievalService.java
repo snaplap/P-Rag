@@ -2,7 +2,6 @@ package com.zzp.rag.service.retrieval;
 
 import com.zzp.rag.domain.model.RetrievalChunk;
 import com.zzp.rag.service.embedding.EmbeddingService;
-import com.zzp.rag.service.rerank.RerankService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -20,12 +19,10 @@ public class RetrievalService {
 
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
-    private final RerankService rerankService;
 
-    public RetrievalService(EmbeddingService embeddingService, VectorStore vectorStore, RerankService rerankService) {
+    public RetrievalService(EmbeddingService embeddingService, VectorStore vectorStore) {
         this.embeddingService = embeddingService;
         this.vectorStore = vectorStore;
-        this.rerankService = rerankService;
     }
 
     /**
@@ -35,15 +32,9 @@ public class RetrievalService {
     public List<RetrievalChunk> retrieve(String question, int topK, String knowledgeBaseId) {
         int safeTopK = Math.max(1, topK);
         double[] queryVector = embeddingService.embed(question);
-        // 先扩大候选池，再执行模型重排，提升召回稳定性。
+        // 先扩大候选池，由编排层统一对最终证据做 rerank。
         List<RetrievalChunk> candidates = vectorStore.search(queryVector, Math.max(12, safeTopK * 3), knowledgeBaseId);
-
-        try {
-            List<RetrievalChunk> reranked = rerankService.rerank(question, candidates);
-            return postProcess(reranked, safeTopK);
-        } catch (RuntimeException ex) {
-            return postProcess(candidates, safeTopK);
-        }
+        return postProcess(candidates, safeTopK);
     }
 
     /**
