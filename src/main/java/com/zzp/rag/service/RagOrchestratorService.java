@@ -18,6 +18,7 @@ import com.zzp.rag.service.cache.WebSearchVectorCacheService;
 import com.zzp.rag.service.generation.AnswerGenerationService;
 import com.zzp.rag.service.mcp.McpRoutingDecisionService;
 import com.zzp.rag.service.mcp.McpToolClient;
+import com.zzp.rag.service.retrieval.QueryRewriteService;
 import com.zzp.rag.service.retrieval.RetrievalService;
 import com.zzp.rag.service.rerank.RerankService;
 import org.slf4j.Logger;
@@ -43,6 +44,7 @@ public class RagOrchestratorService {
     private final CacheService cacheService;
     private final SessionContextService sessionContextService;
     private final RetrievalService retrievalService;
+    private final QueryRewriteService queryRewriteService;
     private final McpToolClient mcpToolClient;
     private final McpRoutingDecisionService mcpRoutingDecisionService;
     private final WebSearchVectorCacheService webSearchVectorCacheService;
@@ -57,6 +59,7 @@ public class RagOrchestratorService {
             CacheService cacheService,
             SessionContextService sessionContextService,
             RetrievalService retrievalService,
+            QueryRewriteService queryRewriteService,
             McpToolClient mcpToolClient,
             McpRoutingDecisionService mcpRoutingDecisionService,
             WebSearchVectorCacheService webSearchVectorCacheService,
@@ -69,6 +72,7 @@ public class RagOrchestratorService {
         this.cacheService = cacheService;
         this.sessionContextService = sessionContextService;
         this.retrievalService = retrievalService;
+        this.queryRewriteService = queryRewriteService;
         this.mcpToolClient = mcpToolClient;
         this.mcpRoutingDecisionService = mcpRoutingDecisionService;
         this.webSearchVectorCacheService = webSearchVectorCacheService;
@@ -131,7 +135,7 @@ public class RagOrchestratorService {
                             0L,
                             true);
                     attachChainDiagnostics(logMetrics, true, "CACHE_HIT", false, McpRoutingDecisionService.Route.RAG,
-                            "served-from-cache");
+                            "served-from-cache", question);
 
                     RagAnswer answer = new RagAnswer(
                             cached.question(),
@@ -148,31 +152,37 @@ public class RagOrchestratorService {
                 }
             }
 
+            List<ConversationTurn> history = sessionContextService.load(sessionId);
+            String retrievalQuery = queryRewriteService.rewrite(question, history);
+
             long retrievalStart = System.nanoTime();
-            List<RetrievalChunk> kbEvidence = retrievalService.retrieve(question, topK, knowledgeBaseId);
-            McpRoutingDecisionService.Decision decision = mcpRoutingDecisionService.decide(
+            List<RetrievalChunk> kbEvidence = retrievalService.retrieve(
                     question,
+                    retrievalQuery,
+                    topK,
+                    knowledgeBaseId);
+            McpRoutingDecisionService.Decision decision = mcpRoutingDecisionService.decide(
+                    retrievalQuery,
                     kbEvidence,
                     ragProperties.getRetrieval().getMinScore());
             log.info("MCP routing decision: {}", decision.reason());
 
-            List<ConversationTurn> history = sessionContextService.load(sessionId);
             List<RetrievalChunk> evidence;
             DataSourceType sourceType;
             boolean mcpSearchFallback = false;
 
             if (decision.route() == McpRoutingDecisionService.Route.MCP) {
-                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(question, topK);
+                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(retrievalQuery, topK);
                 List<RetrievalChunk> webEvidence = webEvidenceResult.chunks();
                 mcpSearchFallback = webEvidenceResult.fallbackUsed();
-                webSearchVectorCacheService.cache(question, webEvidence);
+                webSearchVectorCacheService.cache(retrievalQuery, webEvidence);
                 evidence = webEvidence.isEmpty() ? kbEvidence : webEvidence;
                 sourceType = webEvidence.isEmpty() ? DataSourceType.KNOWLEDGE_BASE : DataSourceType.WEB;
             } else if (decision.route() == McpRoutingDecisionService.Route.RAG_MCP) {
-                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(question, topK);
+                WebEvidenceResult webEvidenceResult = fallbackToWebSearch(retrievalQuery, topK);
                 List<RetrievalChunk> webEvidence = webEvidenceResult.chunks();
                 mcpSearchFallback = webEvidenceResult.fallbackUsed();
-                webSearchVectorCacheService.cache(question, webEvidence);
+                webSearchVectorCacheService.cache(retrievalQuery, webEvidence);
                 evidence = mergeEvidence(kbEvidence, webEvidence, topK);
                 sourceType = webEvidence.isEmpty() ? DataSourceType.KNOWLEDGE_BASE : DataSourceType.HYBRID;
             } else {
@@ -216,7 +226,8 @@ public class RagOrchestratorService {
                     generationOutcome.fallbackReason(),
                     mcpSearchFallback,
                     decision.route(),
-                    decision.reason());
+                    decision.reason(),
+                    retrievalQuery);
 
             RagAnswer ragAnswer = new RagAnswer(
                     question,
@@ -441,13 +452,15 @@ public class RagOrchestratorService {
             String llmFallbackReason,
             boolean mcpSearchFallback,
             McpRoutingDecisionService.Route route,
-            String routeReason) {
+            String routeReason,
+            String retrievalQuery) {
         Map<String, Object> chain = new LinkedHashMap<>();
         chain.put("LLM已使用", llmUsed ? "是" : "否");
         chain.put("LLM回退原因", llmFallbackReason == null || llmFallbackReason.isBlank() ? "-" : llmFallbackReason);
         chain.put("MCP检索回退", mcpSearchFallback ? "是" : "否");
         chain.put("MCP路由", route == null ? "-" : route.name());
         chain.put("MCP决策依据", routeReason == null || routeReason.isBlank() ? "-" : routeReason);
+        chain.put("检索改写查询", retrievalQuery == null || retrievalQuery.isBlank() ? "-" : retrievalQuery);
         logMetrics.put("链路诊断", chain);
     }
 

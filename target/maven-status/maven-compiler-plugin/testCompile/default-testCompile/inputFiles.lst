@@ -6,4 +6,5 @@ D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\generation\AnswerGenerationS
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\KnowledgeBaseManagementServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\mcp\McpRoutingDecisionServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\RagOrchestratorServiceTest.java
+D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\retrieval\QueryRewriteServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\retrieval\RetrievalServiceTest.java

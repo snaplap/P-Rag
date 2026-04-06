@@ -35,6 +35,7 @@ D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\RagOrchestratorService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\rerank\DashScopeRerankService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\rerank\RerankService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\MilvusVectorStore.java
+D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\QueryRewriteService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\RetrievalService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\VectorStore.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\trace\KnowledgeTraceService.java

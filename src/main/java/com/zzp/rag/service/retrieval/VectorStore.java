@@ -21,6 +21,13 @@ public interface VectorStore {
     List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId);
 
     /**
+     * 按关键词和知识库检索候选，默认实现为空以保持存量实现兼容。
+     */
+    default List<RetrievalChunk> searchByKeywords(String query, int topK, String knowledgeBaseId) {
+        return List.of();
+    }
+
+    /**
      * 按知识库删除向量数据。
      */
     int deleteByKnowledgeBaseId(String knowledgeBaseId);

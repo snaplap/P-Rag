@@ -390,6 +390,10 @@ public class RagProperties {
         private String webSearchUrl = "http://localhost:18080/mcp/web-search/search";
         private String diagramUrl = "http://localhost:18081/mcp/diagram";
         private int callTimeoutMs = 6000;
+        private int maxRetries = 2;
+        private int retryBackoffMs = 250;
+        private int circuitBreakerThreshold = 3;
+        private int circuitBreakerOpenMs = 30000;
 
         public boolean isUseMock() {
             return useMock;
@@ -421,6 +425,38 @@ public class RagProperties {
 
         public void setCallTimeoutMs(int callTimeoutMs) {
             this.callTimeoutMs = callTimeoutMs;
+        }
+
+        public int getMaxRetries() {
+            return maxRetries;
+        }
+
+        public void setMaxRetries(int maxRetries) {
+            this.maxRetries = maxRetries;
+        }
+
+        public int getRetryBackoffMs() {
+            return retryBackoffMs;
+        }
+
+        public void setRetryBackoffMs(int retryBackoffMs) {
+            this.retryBackoffMs = retryBackoffMs;
+        }
+
+        public int getCircuitBreakerThreshold() {
+            return circuitBreakerThreshold;
+        }
+
+        public void setCircuitBreakerThreshold(int circuitBreakerThreshold) {
+            this.circuitBreakerThreshold = circuitBreakerThreshold;
+        }
+
+        public int getCircuitBreakerOpenMs() {
+            return circuitBreakerOpenMs;
+        }
+
+        public void setCircuitBreakerOpenMs(int circuitBreakerOpenMs) {
+            this.circuitBreakerOpenMs = circuitBreakerOpenMs;
         }
     }
 

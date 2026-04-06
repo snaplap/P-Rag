@@ -65,6 +65,10 @@ app:
       web-search-url: ${MCP_WEB_SEARCH_URL:http://localhost:18080/mcp/web-search/search}
       diagram-url: ${MCP_DIAGRAM_URL:http://localhost:18081/mcp/diagram}
       call-timeout-ms: ${MCP_CALL_TIMEOUT_MS:6000}
+      max-retries: ${MCP_MAX_RETRIES:2}
+      retry-backoff-ms: ${MCP_RETRY_BACKOFF_MS:250}
+      circuit-breaker-threshold: ${MCP_CIRCUIT_BREAKER_THRESHOLD:3}
+      circuit-breaker-open-ms: ${MCP_CIRCUIT_BREAKER_OPEN_MS:30000}
     metrics:
       input-cost-per1k-tokens: ${RAG_INPUT_COST_PER_1K:0}
       output-cost-per1k-tokens: ${RAG_OUTPUT_COST_PER_1K:0}

@@ -17,6 +17,7 @@ import com.zzp.rag.service.generation.AnswerGenerationService;
 import com.zzp.rag.service.mcp.McpRoutingDecisionService;
 import com.zzp.rag.service.mcp.McpToolClient;
 import com.zzp.rag.service.rerank.RerankService;
+import com.zzp.rag.service.retrieval.QueryRewriteService;
 import com.zzp.rag.service.retrieval.RetrievalService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -50,6 +52,7 @@ class RagOrchestratorServiceTest {
         CacheService cacheService = mock(CacheService.class);
         SessionContextService sessionContextService = mock(SessionContextService.class);
         RetrievalService retrievalService = mock(RetrievalService.class);
+        QueryRewriteService queryRewriteService = mock(QueryRewriteService.class);
         McpToolClient mcpToolClient = mock(McpToolClient.class);
         McpRoutingDecisionService routingDecisionService = mock(McpRoutingDecisionService.class);
         WebSearchVectorCacheService webSearchVectorCacheService = mock(WebSearchVectorCacheService.class);
@@ -64,6 +67,7 @@ class RagOrchestratorServiceTest {
                 cacheService,
                 sessionContextService,
                 retrievalService,
+                queryRewriteService,
                 mcpToolClient,
                 routingDecisionService,
                 webSearchVectorCacheService,
@@ -86,7 +90,8 @@ class RagOrchestratorServiceTest {
 
         when(cacheService.get(anyString(), anyString())).thenReturn(Optional.empty());
         when(sessionContextService.load(anyString())).thenReturn(List.of());
-        when(retrievalService.retrieve(anyString(), anyInt(), anyString())).thenReturn(List.of(kb1, kb2));
+        when(queryRewriteService.rewrite(anyString(), anyList())).thenReturn("改写后的检索问题");
+        when(retrievalService.retrieve(anyString(), anyString(), anyInt(), anyString())).thenReturn(List.of(kb1, kb2));
         when(routingDecisionService.requiresFreshSearch(anyString())).thenReturn(false);
         when(routingDecisionService.decide(anyString(), anyList(), anyDouble())).thenReturn(
                 new McpRoutingDecisionService.Decision(
@@ -129,6 +134,14 @@ class RagOrchestratorServiceTest {
                 .forClass(List.class);
         verify(rerankService, times(1)).rerank(anyString(), rerankInputCaptor.capture());
         Assertions.assertEquals(3, rerankInputCaptor.getValue().size());
+
+        verify(queryRewriteService, times(1)).rewrite(eq("请综合知识库和互联网给出结论"), anyList());
+        verify(retrievalService, times(1)).retrieve(
+                eq("请综合知识库和互联网给出结论"),
+                eq("改写后的检索问题"),
+                eq(2),
+                eq("kb-1"));
+        verify(mcpToolClient, times(1)).searchWeb(eq("改写后的检索问题"), eq(2));
 
         verify(mcpToolClient, never()).generateMindMap(anyString(), anyString(), any(), anyList());
     }

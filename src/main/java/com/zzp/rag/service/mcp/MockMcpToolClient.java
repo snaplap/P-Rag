@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 /**
@@ -37,6 +39,7 @@ public class MockMcpToolClient implements McpToolClient {
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final Map<String, EndpointCircuitState> endpointStates = new ConcurrentHashMap<>();
 
     public MockMcpToolClient(RagProperties ragProperties, ObjectMapper objectMapper) {
         this.ragProperties = ragProperties;
@@ -218,10 +221,17 @@ public class MockMcpToolClient implements McpToolClient {
             String feature) throws Exception {
         Exception last = null;
         for (String url : candidateUrls) {
+            if (isCircuitOpen(feature, url)) {
+                log.warn("MCP {} endpoint skipped by circuit breaker: {}", feature, url);
+                continue;
+            }
+
             try {
-                JsonNode root = postJson(url, payload);
+                JsonNode root = postJsonWithRetry(url, payload, feature);
+                recordSuccess(feature, url);
                 return new JsonCallResult(url, root);
             } catch (Exception ex) {
+                recordFailure(feature, url);
                 last = ex;
                 log.warn("MCP {} endpoint failed: {}, reason={}", feature, url, ex.getMessage());
             }
@@ -233,15 +243,115 @@ public class MockMcpToolClient implements McpToolClient {
         throw new IllegalStateException("No available endpoint for " + feature + ", preferred=" + preferredUrl);
     }
 
+    private JsonNode postJsonWithRetry(String url, Map<String, Object> payload, String feature) throws Exception {
+        int maxRetries = Math.max(0, ragProperties.getMcp().getMaxRetries());
+        int backoffMs = Math.max(0, ragProperties.getMcp().getRetryBackoffMs());
+
+        Exception last = null;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return postJson(url, payload, feature);
+            } catch (Exception ex) {
+                last = ex;
+                if (attempt >= maxRetries || !isRetryable(ex)) {
+                    throw ex;
+                }
+                if (backoffMs > 0) {
+                    long sleepMs = (long) backoffMs * (attempt + 1L);
+                    Thread.sleep(sleepMs);
+                }
+            }
+        }
+
+        if (last != null) {
+            throw last;
+        }
+        throw new IllegalStateException("MCP request failed without exception: " + url);
+    }
+
+    private boolean isRetryable(Exception ex) {
+        String message = ex == null || ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(Locale.ROOT);
+        if (message.contains("timed out") || message.contains("timeout") || message.contains("connection")) {
+            return true;
+        }
+        if (message.contains("status=")) {
+            int status = parseStatusCode(message);
+            return status == 429 || status >= 500;
+        }
+        return false;
+    }
+
+    private int parseStatusCode(String message) {
+        int idx = message.indexOf("status=");
+        if (idx < 0) {
+            return -1;
+        }
+
+        int start = idx + "status=".length();
+        int end = start;
+        while (end < message.length() && Character.isDigit(message.charAt(end))) {
+            end++;
+        }
+        if (end <= start) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(message.substring(start, end));
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private boolean isCircuitOpen(String feature, String url) {
+        EndpointCircuitState state = endpointStates.get(buildEndpointStateKey(feature, url));
+        if (state == null) {
+            return false;
+        }
+        return state.openUntilMs > System.currentTimeMillis();
+    }
+
+    private void recordFailure(String feature, String url) {
+        String key = buildEndpointStateKey(feature, url);
+        EndpointCircuitState state = endpointStates.computeIfAbsent(key, ignored -> new EndpointCircuitState());
+
+        synchronized (state) {
+            state.consecutiveFailures++;
+            int threshold = Math.max(1, ragProperties.getMcp().getCircuitBreakerThreshold());
+            if (state.consecutiveFailures >= threshold) {
+                int openMs = Math.max(1000, ragProperties.getMcp().getCircuitBreakerOpenMs());
+                state.openUntilMs = System.currentTimeMillis() + openMs;
+                state.consecutiveFailures = 0;
+            }
+        }
+    }
+
+    private void recordSuccess(String feature, String url) {
+        EndpointCircuitState state = endpointStates.get(buildEndpointStateKey(feature, url));
+        if (state == null) {
+            return;
+        }
+        synchronized (state) {
+            state.consecutiveFailures = 0;
+            state.openUntilMs = 0L;
+        }
+    }
+
+    private String buildEndpointStateKey(String feature, String url) {
+        return feature + "|" + url;
+    }
+
     /**
      * 执行单次 HTTP JSON POST。
      */
-    private JsonNode postJson(String url, Map<String, Object> payload) throws Exception {
+    private JsonNode postJson(String url, Map<String, Object> payload, String feature) throws Exception {
         String body = objectMapper.writeValueAsString(payload);
+        String requestId = UUID.randomUUID().toString();
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofMillis(Math.max(1000, ragProperties.getMcp().getCallTimeoutMs())))
                 .header("Content-Type", "application/json")
+                .header("X-Request-Id", requestId)
+                .header("X-MCP-Feature", feature)
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
@@ -576,6 +686,11 @@ public class MockMcpToolClient implements McpToolClient {
     }
 
     private record JsonCallResult(String endpoint, JsonNode root) {
+    }
+
+    private static final class EndpointCircuitState {
+        private int consecutiveFailures;
+        private long openUntilMs;
     }
 
     private String limit(String text, int maxLen) {

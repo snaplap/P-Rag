@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 class RetrievalServiceTest {
 
@@ -69,5 +71,61 @@ class RetrievalServiceTest {
 
         Assertions.assertEquals(1, result.size());
         Assertions.assertEquals("doc-a", result.get(0).documentId());
+    }
+
+    @Test
+    void shouldUseDualRouteRetrievalAndFuseCandidates() {
+        AtomicReference<String> embeddedQuery = new AtomicReference<>("");
+        EmbeddingService embeddingService = text -> {
+            embeddedQuery.set(text);
+            return new double[] { 0.1d };
+        };
+
+        AtomicInteger searchCalls = new AtomicInteger(0);
+        AtomicInteger keywordSearchCalls = new AtomicInteger(0);
+        VectorStore vectorStore = new VectorStore() {
+            @Override
+            public void upsert(com.zzp.rag.domain.model.VectorDocument vectorDocument) {
+            }
+
+            @Override
+            public List<RetrievalChunk> search(double[] queryVector, int topK, String knowledgeBaseId) {
+                searchCalls.incrementAndGet();
+                return List.of(
+                        new RetrievalChunk("s1", "doc-semantic", "多路召回可以提升覆盖率", 0.84d,
+                                DataSourceType.KNOWLEDGE_BASE),
+                        new RetrievalChunk("s2", "doc-shared", "向量召回需要重排", 0.73d,
+                                DataSourceType.KNOWLEDGE_BASE));
+            }
+
+            @Override
+            public List<RetrievalChunk> searchByKeywords(String query, int topK, String knowledgeBaseId) {
+                keywordSearchCalls.incrementAndGet();
+                return List.of(
+                        new RetrievalChunk("k1", "doc-key", "Milvus 2.4 支持混合检索", 0.86d,
+                                DataSourceType.KNOWLEDGE_BASE),
+                        new RetrievalChunk("k2", "doc-shared", "向量召回需要重排", 0.70d,
+                                DataSourceType.KNOWLEDGE_BASE));
+            }
+
+            @Override
+            public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
+                return 0;
+            }
+        };
+
+        RetrievalService service = new RetrievalService(embeddingService, vectorStore);
+        List<RetrievalChunk> result = service.retrieve(
+                "Milvus 2.4 混合检索怎么做",
+                "Milvus 2.4 混合检索 实现策略",
+                3,
+                "kb-1");
+
+        Assertions.assertEquals(1, searchCalls.get());
+        Assertions.assertEquals(1, keywordSearchCalls.get());
+        Assertions.assertEquals("Milvus 2.4 混合检索 实现策略", embeddedQuery.get());
+        Assertions.assertTrue(result.stream().anyMatch(v -> "doc-semantic".equals(v.documentId())));
+        Assertions.assertTrue(result.stream().anyMatch(v -> "doc-key".equals(v.documentId())));
+        Assertions.assertTrue(result.stream().anyMatch(v -> "doc-shared".equals(v.documentId())));
     }
 }
