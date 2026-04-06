@@ -116,7 +116,7 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     /**
-     * 按知识库删除向量：本地先删，远端尽力删除。
+     * 按知识库删除向量：本地先删，远端尽量删除。
      */
     @Override
     public int deleteByKnowledgeBaseId(String knowledgeBaseId) {
