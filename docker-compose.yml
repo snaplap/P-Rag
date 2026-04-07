@@ -1,0 +1,136 @@
+services:
+
+  redis2:
+    image: redis:latest
+    container_name: redis-milvus
+    ports:
+      - "6381:6379"
+    volumes:
+      - ./redis/data:/data
+    restart: always
+
+  kafka2:
+    image: apache/kafka:3.9.0
+    container_name: kafka-milvus
+    ports:
+      - "9095:9093"
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9093,CONTROLLER://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:9092,EXTERNAL://localhost:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 2@kafka2:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: 6M7h4oUiT-fMCtK--Y77xx
+    restart: always
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: milvus-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: >
+      etcd
+      -advertise-client-urls=http://etcd:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    volumes:
+      - ./milvus/etcd:/etcd
+    ports:
+      - "2379:2379"
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    container_name: milvus-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./milvus/minio:/data
+    restart: always
+
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    container_name: milvus-standalone
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - ./milvus/data:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+    restart: always
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "18082:8080"
+    environment:
+      - BASE_URL=http://localhost:18082/
+    restart: always
+
+  mermaid:
+    image: yuzutech/kroki-mermaid:latest
+    container_name: mermaid
+    restart: always
+
+  kroki:
+    image: yuzutech/kroki:latest
+    container_name: kroki
+    ports:
+      - "18083:8000"
+    depends_on:
+      - mermaid
+    environment:
+      - KROKI_MERMAID_HOST=mermaid
+      - KROKI_MERMAID_PORT=8002
+    restart: always
+
+  mcp-web-search:
+    build:
+      context: ./mcp/web-search
+      dockerfile: Dockerfile
+    image: local/mcp-web-search:1.0.0
+    container_name: mcp-web-search
+    depends_on:
+      - searxng
+    ports:
+      - "18080:8080"
+    environment:
+      - SEARXNG_URL=http://searxng:8080
+    restart: always
+
+  mcp-diagram:
+    build:
+      context: ./mcp/diagram
+      dockerfile: Dockerfile
+    image: local/mcp-diagram:1.0.0
+    container_name: mcp-diagram
+    depends_on:
+      - kroki
+    ports:
+      - "18081:8080"
+    environment:
+      - KROKI_URL=http://kroki:8000
+    restart: always
