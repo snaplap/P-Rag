@@ -309,7 +309,7 @@
     }
 
     .chat-wrap {
-      width: min(860px, calc(100% - 36px));
+      width: min(920px, calc(100% - 36px));
       margin: 0 auto;
       display: flex;
       flex-direction: column;
@@ -317,7 +317,7 @@
     }
 
     .msg {
-      max-width: 92%;
+      max-width: 94%;
       border-radius: 14px;
       padding: 14px 16px;
       line-height: 1.72;
@@ -407,7 +407,7 @@
     }
 
     .composer {
-      width: min(860px, calc(100% - 36px));
+      width: min(920px, calc(100% - 36px));
       margin: 0 auto;
       border: 1px solid #dfe4ed;
       border-radius: 16px;
@@ -506,7 +506,7 @@
     }
 
     .composer-tip {
-      width: min(860px, calc(100% - 36px));
+      width: min(920px, calc(100% - 36px));
       margin: 7px auto 0;
       font-size: 12px;
       color: var(--muted);
@@ -518,11 +518,17 @@
 
     .mindmap-image {
       margin-top: 8px;
-      width: min(100%, 620px);
+      width: min(100%, 820px);
       border-radius: 12px;
       border: 1px solid #d2e9f8;
       box-shadow: 0 8px 20px rgba(82, 157, 206, 0.18);
       display: block;
+    }
+
+    @media (max-width: 1200px) {
+      .mindmap-image {
+        width: min(100%, 760px);
+      }
     }
 
     .warn {
@@ -580,6 +586,10 @@
       .composer,
       .composer-tip {
         width: calc(100% - 20px);
+      }
+
+      .mindmap-image {
+        width: 100%;
       }
     }
 
