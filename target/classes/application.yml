@@ -59,6 +59,8 @@ app:
       collection: ${MILVUS_COLLECTION:rag_knowledge_chunks}
       # 默认为 true，表示优先使用 Docker 中的 Milvus 服务。
       use-remote: ${MILVUS_USE_REMOTE:true}
+      # 默认 false，优先可用性；设为 true 时远端写入/查询失败会直接报错。
+      strict-mode: ${MILVUS_STRICT_MODE:false}
       base-url: ${MILVUS_BASE_URL:http://localhost:19530}
     mcp:
       use-mock: ${MCP_USE_MOCK:false}
@@ -69,6 +71,13 @@ app:
       retry-backoff-ms: ${MCP_RETRY_BACKOFF_MS:250}
       circuit-breaker-threshold: ${MCP_CIRCUIT_BREAKER_THRESHOLD:3}
       circuit-breaker-open-ms: ${MCP_CIRCUIT_BREAKER_OPEN_MS:30000}
+      enable-web-preprocess: ${MCP_ENABLE_WEB_PREPROCESS:true}
+      enable-web-decompose: ${MCP_ENABLE_WEB_DECOMPOSE:true}
+      max-web-sub-queries: ${MCP_MAX_WEB_SUB_QUERIES:3}
+      enable-mindmap-preprocess: ${MCP_ENABLE_MINDMAP_PREPROCESS:true}
+      mindmap-max-answer-chars: ${MCP_MINDMAP_MAX_ANSWER_CHARS:320}
+      mindmap-max-evidence-items: ${MCP_MINDMAP_MAX_EVIDENCE_ITEMS:8}
+      mindmap-snippet-chars: ${MCP_MINDMAP_SNIPPET_CHARS:120}
     metrics:
       input-cost-per1k-tokens: ${RAG_INPUT_COST_PER_1K:0}
       output-cost-per1k-tokens: ${RAG_OUTPUT_COST_PER_1K:0}

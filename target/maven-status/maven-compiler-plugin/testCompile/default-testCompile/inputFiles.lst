@@ -4,7 +4,11 @@ D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\chunking\MarkdownChunkerTest
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\chunking\MarkdownIngestionServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\generation\AnswerGenerationServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\KnowledgeBaseManagementServiceTest.java
+D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\mcp\McpQueryPreprocessorServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\mcp\McpRoutingDecisionServiceTest.java
+D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\mcp\MindMapPreprocessServiceTest.java
+D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\mcp\MockMcpToolClientTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\RagOrchestratorServiceTest.java
+D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\retrieval\MilvusVectorStoreTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\retrieval\QueryRewriteServiceTest.java
 D:\Projects\P-Rag\src\test\java\com\zzp\rag\service\retrieval\RetrievalServiceTest.java

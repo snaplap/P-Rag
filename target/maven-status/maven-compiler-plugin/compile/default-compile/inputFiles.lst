@@ -28,14 +28,17 @@ D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\embedding\DashScopeEmbedding
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\embedding\EmbeddingService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\generation\AnswerGenerationService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\KnowledgeBaseManagementService.java
+D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\mcp\McpQueryPreprocessorService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\mcp\McpRoutingDecisionService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\mcp\McpToolClient.java
+D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\mcp\MindMapPreprocessService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\mcp\MockMcpToolClient.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\RagOrchestratorService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\rerank\DashScopeRerankService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\rerank\RerankService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\MilvusVectorStore.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\QueryRewriteService.java
+D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\RemoteVectorStoreException.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\RetrievalService.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\retrieval\VectorStore.java
 D:\Projects\P-Rag\src\main\java\com\zzp\rag\service\trace\KnowledgeTraceService.java

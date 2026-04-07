@@ -16,8 +16,10 @@ import com.zzp.rag.service.cache.CacheService;
 import com.zzp.rag.service.cache.SessionContextService;
 import com.zzp.rag.service.cache.WebSearchVectorCacheService;
 import com.zzp.rag.service.generation.AnswerGenerationService;
+import com.zzp.rag.service.mcp.McpQueryPreprocessorService;
 import com.zzp.rag.service.mcp.McpRoutingDecisionService;
 import com.zzp.rag.service.mcp.McpToolClient;
+import com.zzp.rag.service.mcp.MindMapPreprocessService;
 import com.zzp.rag.service.retrieval.QueryRewriteService;
 import com.zzp.rag.service.retrieval.RetrievalService;
 import com.zzp.rag.service.rerank.RerankService;
@@ -45,6 +47,8 @@ public class RagOrchestratorService {
     private final SessionContextService sessionContextService;
     private final RetrievalService retrievalService;
     private final QueryRewriteService queryRewriteService;
+    private final McpQueryPreprocessorService mcpQueryPreprocessorService;
+    private final MindMapPreprocessService mindMapPreprocessService;
     private final McpToolClient mcpToolClient;
     private final McpRoutingDecisionService mcpRoutingDecisionService;
     private final WebSearchVectorCacheService webSearchVectorCacheService;
@@ -60,6 +64,8 @@ public class RagOrchestratorService {
             SessionContextService sessionContextService,
             RetrievalService retrievalService,
             QueryRewriteService queryRewriteService,
+            McpQueryPreprocessorService mcpQueryPreprocessorService,
+            MindMapPreprocessService mindMapPreprocessService,
             McpToolClient mcpToolClient,
             McpRoutingDecisionService mcpRoutingDecisionService,
             WebSearchVectorCacheService webSearchVectorCacheService,
@@ -73,6 +79,8 @@ public class RagOrchestratorService {
         this.sessionContextService = sessionContextService;
         this.retrievalService = retrievalService;
         this.queryRewriteService = queryRewriteService;
+        this.mcpQueryPreprocessorService = mcpQueryPreprocessorService;
+        this.mindMapPreprocessService = mindMapPreprocessService;
         this.mcpToolClient = mcpToolClient;
         this.mcpRoutingDecisionService = mcpRoutingDecisionService;
         this.webSearchVectorCacheService = webSearchVectorCacheService;
@@ -116,11 +124,15 @@ public class RagOrchestratorService {
                     if (enableMindMap) {
                         mindMapCommand = cached.mindMapCommand();
                         if (mindMapCommand == null) {
+                            List<RetrievalChunk> processedMindMapEvidence = preprocessMindMapEvidence(
+                                    cached.references());
+                            String compressedCachedAnswer = preprocessMindMapAnswer(cached.answer());
                             mindMapCommand = mcpToolClient.generateMindMap(
                                     question,
-                                    cached.answer(),
+                                    compressedCachedAnswer,
                                     cached.dataSource(),
-                                    cached.references());
+                                    processedMindMapEvidence);
+                            mindMapCommand = attachMindMapEvidenceBindings(mindMapCommand, processedMindMapEvidence);
                         }
                     }
 
@@ -207,7 +219,14 @@ public class RagOrchestratorService {
 
             MindMapCommand mindMapCommand = null;
             if (enableMindMap) {
-                mindMapCommand = mcpToolClient.generateMindMap(question, answerText, sourceType, evidence);
+                List<RetrievalChunk> processedMindMapEvidence = preprocessMindMapEvidence(evidence);
+                String compressedAnswerText = preprocessMindMapAnswer(answerText);
+                mindMapCommand = mcpToolClient.generateMindMap(
+                        question,
+                        compressedAnswerText,
+                        sourceType,
+                        processedMindMapEvidence);
+                mindMapCommand = attachMindMapEvidenceBindings(mindMapCommand, processedMindMapEvidence);
             }
 
             Map<String, Object> logMetrics = runtimeMetricsService.buildLogMetrics(
@@ -353,7 +372,14 @@ public class RagOrchestratorService {
      * 联网检索回退转换：将 Web 搜索结果转换为统一 RetrievalChunk。
      */
     private WebEvidenceResult fallbackToWebSearch(String question, int topK) {
-        List<WebSearchResult> webResults = mcpToolClient.searchWeb(question, topK);
+        McpQueryPreprocessorService.ProcessedQuery processedQuery = preprocessWebQuery(question);
+
+        List<WebSearchResult> merged = new ArrayList<>();
+        for (String candidateQuery : processedQuery.candidateQueries()) {
+            merged.addAll(mcpToolClient.searchWeb(candidateQuery, topK));
+        }
+
+        List<WebSearchResult> webResults = deduplicateWebResults(merged, topK);
         List<RetrievalChunk> chunks = new ArrayList<>();
         for (int i = 0; i < webResults.size(); i++) {
             WebSearchResult web = webResults.get(i);
@@ -366,6 +392,71 @@ public class RagOrchestratorService {
                     DataSourceType.WEB));
         }
         return new WebEvidenceResult(chunks, isMockWebSearchResult(webResults));
+    }
+
+    private McpQueryPreprocessorService.ProcessedQuery preprocessWebQuery(String question) {
+        if (!ragProperties.getMcp().isEnableWebPreprocess()) {
+            String fallback = question == null ? "" : question.trim();
+            return new McpQueryPreprocessorService.ProcessedQuery(fallback, List.of(fallback));
+        }
+        return mcpQueryPreprocessorService.preprocess(question);
+    }
+
+    private List<WebSearchResult> deduplicateWebResults(List<WebSearchResult> webResults, int topK) {
+        if (webResults == null || webResults.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, WebSearchResult> bestByUrl = new LinkedHashMap<>();
+        for (WebSearchResult web : webResults) {
+            if (web == null) {
+                continue;
+            }
+
+            String urlKey = mcpQueryPreprocessorService.normalizeUrl(web.url());
+            if (urlKey.isBlank()) {
+                urlKey = (web.title() == null ? "" : web.title().trim().toLowerCase(Locale.ROOT))
+                        + "|"
+                        + (web.snippet() == null ? "" : web.snippet().trim().toLowerCase(Locale.ROOT));
+            }
+
+            WebSearchResult existing = bestByUrl.get(urlKey);
+            if (existing == null || web.confidence() > existing.confidence()) {
+                bestByUrl.put(urlKey, web);
+            }
+        }
+
+        return bestByUrl.values().stream()
+                .sorted((a, b) -> Double.compare(b.confidence(), a.confidence()))
+                .limit(Math.max(1, topK))
+                .toList();
+    }
+
+    private String preprocessMindMapAnswer(String answerText) {
+        if (!ragProperties.getMcp().isEnableMindMapPreprocess()) {
+            return answerText;
+        }
+        return mindMapPreprocessService.compressAnswer(answerText);
+    }
+
+    private List<RetrievalChunk> preprocessMindMapEvidence(List<RetrievalChunk> evidence) {
+        if (!ragProperties.getMcp().isEnableMindMapPreprocess()) {
+            return evidence == null ? List.of() : evidence;
+        }
+        return mindMapPreprocessService.preprocessEvidence(evidence);
+    }
+
+    private MindMapCommand attachMindMapEvidenceBindings(MindMapCommand command, List<RetrievalChunk> evidence) {
+        if (command == null || evidence == null || evidence.isEmpty()) {
+            return command;
+        }
+
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        if (command.arguments() != null) {
+            arguments.putAll(command.arguments());
+        }
+        arguments.put("evidenceBindings", mindMapPreprocessService.buildEvidenceBindings(evidence));
+        return new MindMapCommand(command.tool(), arguments);
     }
 
     /**

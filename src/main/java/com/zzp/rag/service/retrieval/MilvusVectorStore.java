@@ -8,15 +8,17 @@ import com.zzp.rag.domain.model.RetrievalChunk;
 import com.zzp.rag.domain.model.VectorDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -37,12 +39,18 @@ public class MilvusVectorStore implements VectorStore {
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
     private final Map<String, VectorDocument> localIndex = new ConcurrentHashMap<>();
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient;
     private volatile boolean remoteCollectionReady;
 
+    @Autowired
     public MilvusVectorStore(RagProperties ragProperties, ObjectMapper objectMapper) {
+        this(ragProperties, objectMapper, HttpClient.newHttpClient());
+    }
+
+    MilvusVectorStore(RagProperties ragProperties, ObjectMapper objectMapper, HttpClient httpClient) {
         this.ragProperties = ragProperties;
         this.objectMapper = objectMapper;
+        this.httpClient = Objects.requireNonNullElseGet(httpClient, HttpClient::newHttpClient);
     }
 
     /**
@@ -51,11 +59,15 @@ public class MilvusVectorStore implements VectorStore {
      */
     @Override
     public void upsert(VectorDocument vectorDocument) {
-        // 始终先写本地索引，保障本地开发与容灾场景可检索。
-        localIndex.put(vectorDocument.id(), vectorDocument);
         if (ragProperties.getMilvus().isUseRemote()) {
             pushToRemoteSafely(vectorDocument);
+            // 远端成功后再镜像到本地，避免“远端失败但本地看起来成功”。
+            localIndex.put(vectorDocument.id(), vectorDocument);
+            return;
         }
+
+        // 关闭远端时仍支持本地索引。
+        localIndex.put(vectorDocument.id(), vectorDocument);
     }
 
     /**
@@ -70,7 +82,7 @@ public class MilvusVectorStore implements VectorStore {
 
         if (ragProperties.getMilvus().isUseRemote()) {
             List<RetrievalChunk> remoteChunks = searchFromRemoteSafely(queryVector, topK, knowledgeBaseId);
-            if (!remoteChunks.isEmpty()) {
+            if (!remoteChunks.isEmpty() || isStrictRemoteMode()) {
                 return remoteChunks;
             }
         }
@@ -107,7 +119,7 @@ public class MilvusVectorStore implements VectorStore {
 
         if (ragProperties.getMilvus().isUseRemote()) {
             List<RetrievalChunk> remoteChunks = searchByKeywordsFromRemoteSafely(query, topK, knowledgeBaseId);
-            if (!remoteChunks.isEmpty()) {
+            if (!remoteChunks.isEmpty() || isStrictRemoteMode()) {
                 return remoteChunks;
             }
         }
@@ -155,7 +167,8 @@ public class MilvusVectorStore implements VectorStore {
 
             postMilvus("/v2/vectordb/entities/delete", payload);
         } catch (Exception ex) {
-            log.warn("Remote Milvus delete failed, local index already cleaned: {}", ex.getMessage());
+            log.warn("Remote Milvus delete failed, collection={}, reason={}",
+                    ragProperties.getMilvus().getCollection(), ex.getMessage());
         }
     }
 
@@ -179,7 +192,12 @@ public class MilvusVectorStore implements VectorStore {
 
             postMilvus("/v2/vectordb/entities/insert", payload);
         } catch (Exception ex) {
-            log.warn("Remote Milvus upsert failed, fallback local only: {}", ex.getMessage());
+            String message = "Milvus upsert failed, collection=" + ragProperties.getMilvus().getCollection()
+                    + ", id=" + vectorDocument.id() + ", reason=" + ex.getMessage();
+            if (isStrictRemoteMode()) {
+                throw new RemoteVectorStoreException(message, ex);
+            }
+            log.warn("{}", message);
         }
     }
 
@@ -196,11 +214,11 @@ public class MilvusVectorStore implements VectorStore {
             payload.put("annsField", "vector");
             payload.put("limit", Math.max(1, topK));
             payload.put("outputFields", List.of("id", "knowledgeBaseId", "documentId", "content"));
-            payload.put("filter", "knowledgeBaseId == \"" + knowledgeBaseId + "\"");
+            payload.put("filter", "knowledgeBaseId == \"" + escapeFilterValue(knowledgeBaseId) + "\"");
 
             Map<String, Object> response = postMilvus("/v2/vectordb/entities/search", payload);
-            Object rawData = response.get("data");
-            if (!(rawData instanceof List<?> rawList) || rawList.isEmpty()) {
+            List<?> rawList = extractDataList(response);
+            if (rawList.isEmpty()) {
                 return List.of();
             }
 
@@ -210,13 +228,18 @@ public class MilvusVectorStore implements VectorStore {
                     continue;
                 }
 
-                String id = String.valueOf(map.get("id"));
-                String kbId = String.valueOf(map.get("knowledgeBaseId"));
-                String documentId = String.valueOf(map.get("documentId"));
-                String content = String.valueOf(map.get("content"));
-                double score = parseScore(map.get("score"));
+                List<Map<?, ?>> candidates = collectCandidateMaps(map);
+
+                String id = stringValue(valuesFromCandidates(candidates, "id"));
+                String kbId = stringValue(valuesFromCandidates(candidates, "knowledgeBaseId"));
+                String documentId = stringValue(valuesFromCandidates(candidates, "documentId"));
+                String content = stringValue(valuesFromCandidates(candidates, "content"));
+                double score = parseKeywordRelevance(candidates);
 
                 if (!knowledgeBaseId.equals(kbId)) {
+                    continue;
+                }
+                if (content.isBlank()) {
                     continue;
                 }
 
@@ -224,7 +247,13 @@ public class MilvusVectorStore implements VectorStore {
             }
             return chunks;
         } catch (Exception ex) {
-            log.warn("Remote Milvus search failed, fallback local index: {}", ex.getMessage());
+            String message = "Milvus search failed, collection=" + ragProperties.getMilvus().getCollection()
+                    + ", knowledgeBaseId=" + knowledgeBaseId + ", reason=" + ex.getMessage();
+            if (isStrictRemoteMode()) {
+                throw new RemoteVectorStoreException(message, ex);
+            }
+            log.warn("{}", message);
+            log.debug("Milvus vector search stacktrace", ex);
             return List.of();
         }
     }
@@ -263,7 +292,14 @@ public class MilvusVectorStore implements VectorStore {
                             .toList();
                 }
             } catch (Exception ex) {
-                log.debug("Remote Milvus keyword search path={} failed: {}", path, ex.getMessage());
+                log.warn("Remote Milvus keyword search path={} failed: {}", path, ex.getMessage());
+                log.debug("Remote Milvus keyword search stacktrace", ex);
+                if (isStrictRemoteMode() && "/v2/vectordb/entities/search".equals(path)) {
+                    throw new RemoteVectorStoreException(
+                            "Milvus keyword search failed, collection=" + ragProperties.getMilvus().getCollection()
+                                    + ", knowledgeBaseId=" + knowledgeBaseId + ", reason=" + ex.getMessage(),
+                            ex);
+                }
             }
         }
 
@@ -333,8 +369,8 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     private List<RetrievalChunk> parseKeywordSearchResponse(Map<String, Object> response, String knowledgeBaseId) {
-        Object rawData = response.get("data");
-        if (!(rawData instanceof List<?> rawList) || rawList.isEmpty()) {
+        List<?> rawList = extractDataList(response);
+        if (rawList.isEmpty()) {
             return List.of();
         }
 
@@ -344,33 +380,112 @@ public class MilvusVectorStore implements VectorStore {
                 continue;
             }
 
-            Map<?, ?> entity = map.get("entity") instanceof Map<?, ?> entityMap ? entityMap : Map.of();
-            String kbId = stringValue(map.get("knowledgeBaseId"), entity.get("knowledgeBaseId"));
+            List<Map<?, ?>> candidates = collectCandidateMaps(map);
+            String kbId = stringValue(valuesFromCandidates(candidates, "knowledgeBaseId"));
             if (!knowledgeBaseId.equals(kbId)) {
                 continue;
             }
 
-            String id = stringValue(map.get("id"), entity.get("id"));
-            String documentId = stringValue(map.get("documentId"), entity.get("documentId"));
-            String content = stringValue(map.get("content"), entity.get("content"));
+            String id = stringValue(valuesFromCandidates(candidates, "id"));
+            String documentId = stringValue(valuesFromCandidates(candidates, "documentId"));
+            String content = stringValue(valuesFromCandidates(candidates, "content"));
             if (content.isBlank()) {
                 continue;
             }
 
-            double relevance = parseKeywordRelevance(map);
+            double relevance = parseKeywordRelevance(candidates);
             chunks.add(new RetrievalChunk(id, documentId, content, relevance, DataSourceType.KNOWLEDGE_BASE));
         }
         return normalizeScores(chunks);
     }
 
-    private double parseKeywordRelevance(Map<?, ?> map) {
-        if (map.get("score") instanceof Number score) {
-            return score.doubleValue();
+    private double parseKeywordRelevance(List<Map<?, ?>> candidates) {
+        for (Map<?, ?> candidate : candidates) {
+            if (candidate.get("score") instanceof Number score) {
+                return score.doubleValue();
+            }
+            if (candidate.get("distance") instanceof Number distance) {
+                return 1.0d / (1.0d + Math.max(0.0d, distance.doubleValue()));
+            }
+            if (candidate.get("relevance") instanceof Number relevance) {
+                return relevance.doubleValue();
+            }
+            if (candidate.get("similarity") instanceof Number similarity) {
+                return similarity.doubleValue();
+            }
         }
-        if (map.get("distance") instanceof Number distance) {
-            return 1.0d / (1.0d + Math.max(0.0d, distance.doubleValue()));
+
+        for (Map<?, ?> candidate : candidates) {
+            double parsedScore = parseScore(candidate.get("score"));
+            if (parsedScore > 0.0d) {
+                return parsedScore;
+            }
+            double parsedDistance = parseScore(candidate.get("distance"));
+            if (parsedDistance > 0.0d) {
+                return 1.0d / (1.0d + parsedDistance);
+            }
         }
-        return parseScore(map.get("score"));
+        return 0.0d;
+    }
+
+    private List<?> extractDataList(Map<String, Object> response) {
+        List<?> topLevel = toList(response.get("data"));
+        if (!topLevel.isEmpty()) {
+            return topLevel;
+        }
+
+        Object rawData = response.get("data");
+        if (rawData instanceof Map<?, ?> dataMap) {
+            List<?> nested = firstNonEmptyList(dataMap.get("data"), dataMap.get("rows"), dataMap.get("result"),
+                    dataMap.get("results"), dataMap.get("hits"), dataMap.get("entities"));
+            if (!nested.isEmpty()) {
+                return nested;
+            }
+        }
+
+        return firstNonEmptyList(response.get("result"), response.get("results"), response.get("rows"),
+                response.get("hits"), response.get("entities"));
+    }
+
+    private List<?> firstNonEmptyList(Object... candidates) {
+        for (Object candidate : candidates) {
+            List<?> list = toList(candidate);
+            if (!list.isEmpty()) {
+                return list;
+            }
+        }
+        return List.of();
+    }
+
+    private List<?> toList(Object value) {
+        if (value instanceof List<?> list && !list.isEmpty()) {
+            return list;
+        }
+        return List.of();
+    }
+
+    private List<Map<?, ?>> collectCandidateMaps(Map<?, ?> map) {
+        List<Map<?, ?>> candidates = new ArrayList<>();
+        candidates.add(map);
+
+        if (map.get("entity") instanceof Map<?, ?> entityMap) {
+            candidates.add(entityMap);
+        }
+        if (map.get("fields") instanceof Map<?, ?> fieldsMap) {
+            candidates.add(fieldsMap);
+        }
+        if (map.get("metadata") instanceof Map<?, ?> metadataMap) {
+            candidates.add(metadataMap);
+        }
+        return candidates;
+    }
+
+    private Object[] valuesFromCandidates(List<Map<?, ?>> candidates, String field) {
+        List<Object> values = new ArrayList<>();
+        for (Map<?, ?> candidate : candidates) {
+            values.add(candidate.get(field));
+        }
+        return values.toArray();
     }
 
     private double bm25Score(VectorDocument doc, Map<String, Integer> docFrequency, int docCount, double avgDocLength) {
@@ -545,6 +660,19 @@ public class MilvusVectorStore implements VectorStore {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    private boolean isStrictRemoteMode() {
+        return ragProperties.getMilvus().isUseRemote() && ragProperties.getMilvus().isStrictMode();
+    }
+
+    private boolean isAlreadyExistsError(Exception ex) {
+        if (ex == null || ex.getMessage() == null) {
+            return false;
+        }
+        String message = ex.getMessage().toLowerCase(Locale.ROOT);
+        return message.contains("status=409") || message.contains("already exist") || message.contains("alreadyexists")
+                || message.contains("existed") || message.contains("exist");
+    }
+
     /**
      * 保证远端集合存在，首次调用时懒加载创建。
      */
@@ -558,19 +686,82 @@ public class MilvusVectorStore implements VectorStore {
                 return;
             }
 
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("collectionName", ragProperties.getMilvus().getCollection());
-            payload.put("dimension", ragProperties.getEmbedding().getDimension());
-            payload.put("metricType", "COSINE");
+            Map<String, Object> enhancedPayload = new LinkedHashMap<>();
+            enhancedPayload.put("collectionName", ragProperties.getMilvus().getCollection());
+            enhancedPayload.put("metricType", "COSINE");
+            enhancedPayload.put("primaryFieldName", "id");
+            enhancedPayload.put("vectorFieldName", "vector");
+            enhancedPayload.put("idType", "VarChar");
+            enhancedPayload.put("autoId", false);
+            enhancedPayload.put("enableDynamicField", true);
 
-            // 若集合已存在，Milvus 可能返回异常信息；这里吞掉异常继续使用。
+            List<Map<String, Object>> fields = new ArrayList<>();
+            fields.add(varcharField("id", true, 256));
+            fields.add(varcharField("knowledgeBaseId", false, 256));
+            fields.add(varcharField("documentId", false, 512));
+            fields.add(varcharField("content", false, 4096));
+            fields.add(floatVectorField("vector", ragProperties.getEmbedding().getDimension()));
+            enhancedPayload.put("fields", fields);
+
+            Map<String, Object> basicPayload = new LinkedHashMap<>();
+            basicPayload.put("collectionName", ragProperties.getMilvus().getCollection());
+            basicPayload.put("dimension", ragProperties.getEmbedding().getDimension());
+            basicPayload.put("metricType", "COSINE");
+            basicPayload.put("primaryFieldName", "id");
+            basicPayload.put("vectorFieldName", "vector");
+            basicPayload.put("idType", "VarChar");
+            basicPayload.put("autoId", false);
+            basicPayload.put("enableDynamicField", true);
+
             try {
-                postMilvus("/v2/vectordb/collections/create", payload);
-            } catch (Exception ignored) {
-                // ignore
+                postMilvus("/v2/vectordb/collections/create", enhancedPayload);
+                remoteCollectionReady = true;
+                log.info("Milvus collection ready: {}", ragProperties.getMilvus().getCollection());
+            } catch (Exception ex) {
+                if (isAlreadyExistsError(ex)) {
+                    remoteCollectionReady = true;
+                    log.info("Milvus collection already exists: {}", ragProperties.getMilvus().getCollection());
+                    return;
+                }
+                log.warn("Milvus enhanced collection create failed, fallback to basic payload, collection={}, reason={}",
+                        ragProperties.getMilvus().getCollection(), ex.getMessage());
+                log.debug("Milvus enhanced collection create stacktrace", ex);
+
+                try {
+                    postMilvus("/v2/vectordb/collections/create", basicPayload);
+                    remoteCollectionReady = true;
+                    log.info("Milvus collection ready via basic payload: {}", ragProperties.getMilvus().getCollection());
+                } catch (Exception fallbackEx) {
+                    if (isAlreadyExistsError(fallbackEx)) {
+                        remoteCollectionReady = true;
+                        log.info("Milvus collection already exists: {}", ragProperties.getMilvus().getCollection());
+                        return;
+                    }
+                    remoteCollectionReady = false;
+                    throw new RemoteVectorStoreException(
+                            "Milvus collection init failed, collection=" + ragProperties.getMilvus().getCollection()
+                                    + ", reason=" + fallbackEx.getMessage(),
+                            fallbackEx);
+                }
             }
-            remoteCollectionReady = true;
         }
+    }
+
+    private Map<String, Object> varcharField(String fieldName, boolean primaryKey, int maxLength) {
+        Map<String, Object> field = new LinkedHashMap<>();
+        field.put("fieldName", fieldName);
+        field.put("dataType", "VarChar");
+        field.put("isPrimary", primaryKey);
+        field.put("maxLength", maxLength);
+        return field;
+    }
+
+    private Map<String, Object> floatVectorField(String fieldName, int dimension) {
+        Map<String, Object> field = new LinkedHashMap<>();
+        field.put("fieldName", fieldName);
+        field.put("dataType", "FloatVector");
+        field.put("dimension", dimension);
+        return field;
     }
 
     /**
@@ -588,14 +779,64 @@ public class MilvusVectorStore implements VectorStore {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("Milvus status=" + response.statusCode());
+            String body = response.body() == null ? "" : response.body();
+            String compactBody = body.length() > 200 ? body.substring(0, 200) + "..." : body;
+            throw new IllegalStateException(
+                    "Milvus status=" + response.statusCode() + ", path=" + path + ", body=" + compactBody);
         }
 
         if (response.body() == null || response.body().isBlank()) {
             return Map.of();
         }
-        return objectMapper.readValue(response.body(), new TypeReference<>() {
+        Map<String, Object> parsed = objectMapper.readValue(response.body(), new TypeReference<>() {
         });
+        ensureMilvusBusinessSuccess(path, parsed, response.body());
+        return parsed;
+    }
+
+    private void ensureMilvusBusinessSuccess(String path, Map<String, Object> response, String rawBody) {
+        if (response == null || response.isEmpty()) {
+            return;
+        }
+
+        if (isMilvusBusinessSuccess(response)) {
+            return;
+        }
+
+        String code = stringValue(response.get("code"), response.get("status"), response.get("error_code"));
+        String message = stringValue(response.get("message"), response.get("msg"), response.get("reason"));
+        String compactBody = rawBody == null ? "" : (rawBody.length() > 240 ? rawBody.substring(0, 240) + "..." : rawBody);
+        throw new IllegalStateException(
+                "Milvus business failure, path=" + path + ", code=" + code + ", message=" + message + ", body="
+                        + compactBody);
+    }
+
+    private boolean isMilvusBusinessSuccess(Map<String, Object> response) {
+        Object code = response.get("code");
+        if (code != null) {
+            if (code instanceof Number number) {
+                return number.intValue() == 0;
+            }
+            String text = code.toString().trim().toLowerCase(Locale.ROOT);
+            return "0".equals(text) || "success".equals(text) || "ok".equals(text);
+        }
+
+        Object status = response.get("status");
+        if (status != null) {
+            String text = status.toString().trim().toLowerCase(Locale.ROOT);
+            return "success".equals(text) || "ok".equals(text) || "0".equals(text) || "200".equals(text);
+        }
+
+        Object errorCode = response.get("error_code");
+        if (errorCode instanceof Number number) {
+            return number.intValue() == 0;
+        }
+        if (errorCode != null) {
+            return "0".equals(errorCode.toString().trim());
+        }
+
+        // 缺少业务状态字段时不做失败推断，避免误伤兼容响应。
+        return true;
     }
 
     /**

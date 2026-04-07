@@ -1121,9 +1121,13 @@
             minorHint.className = "warn";
           }
           if (payload.mindMapCommand) {
-            const rendered = appendMindMapImage(payload.mindMapCommand);
-            if (rendered) {
-              if (!payload.uncertain) {
+            const mindMapRender = appendMindMapImage(payload.mindMapCommand);
+            if (mindMapRender && mindMapRender.rendered) {
+              if (mindMapRender.fallback) {
+                const fallbackReason = mindMapRender.reason ? "（原因: " + mindMapRender.reason + "）" : "";
+                minorHint.textContent = "已生成回退导图" + fallbackReason;
+                minorHint.className = "warn";
+              } else if (!payload.uncertain) {
                 minorHint.textContent = "已触发思维导图生成";
                 minorHint.className = "";
               }
@@ -1141,7 +1145,8 @@
       }
 
       if (evt.name === "error") {
-        throw new Error("服务端流式错误");
+        const payload = safeJson(evt.data);
+        throw new Error(payload && payload.message ? payload.message : "服务端流式错误");
       }
     };
 
@@ -1436,19 +1441,27 @@
 
   function appendMindMapImage(command) {
     if (!command || !command.arguments) {
-      return false;
+      return { rendered: false, fallback: false, reason: "" };
     }
     const imageUrl = command.arguments.imageUrl || command.arguments.diagramUrl || command.arguments.url;
     if (!imageUrl) {
-      return false;
+      return { rendered: false, fallback: false, reason: "" };
     }
 
-    const tip = "思维导图\n\n![MindMap](" + imageUrl + ")";
+    const isFallback = Boolean(command.arguments.mcpFallback);
+    const fallbackReason = command.arguments.mcpFallbackReason || "";
+
+    let tipTitle = "思维导图";
+    if (isFallback) {
+      tipTitle = fallbackReason ? "思维导图（回退）- " + fallbackReason : "思维导图（回退）";
+    }
+
+    const tip = tipTitle + "\n\n![MindMap](" + imageUrl + ")";
     currentHistory.push({ role: "assistant", text: tip, source: "MindMap" });
     currentHistory = normalizeHistory(currentHistory);
     saveHistory(active.knowledgeBaseId, currentHistory);
     appendMessage("assistant", tip, "MindMap");
-    return true;
+    return { rendered: true, fallback: isFallback, reason: fallbackReason };
   }
 
   function initSidebarState() {

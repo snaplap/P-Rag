@@ -355,6 +355,7 @@ public class RagProperties {
     public static class Milvus {
         private String collection = "rag_knowledge_chunks";
         private boolean useRemote;
+        private boolean strictMode = false;
         private String baseUrl = "http://localhost:19530";
 
         public String getCollection() {
@@ -371,6 +372,14 @@ public class RagProperties {
 
         public void setUseRemote(boolean useRemote) {
             this.useRemote = useRemote;
+        }
+
+        public boolean isStrictMode() {
+            return strictMode;
+        }
+
+        public void setStrictMode(boolean strictMode) {
+            this.strictMode = strictMode;
         }
 
         public String getBaseUrl() {
@@ -394,6 +403,13 @@ public class RagProperties {
         private int retryBackoffMs = 250;
         private int circuitBreakerThreshold = 3;
         private int circuitBreakerOpenMs = 30000;
+        private boolean enableWebPreprocess = true;
+        private boolean enableWebDecompose = true;
+        private int maxWebSubQueries = 3;
+        private boolean enableMindMapPreprocess = true;
+        private int mindMapMaxAnswerChars = 320;
+        private int mindMapMaxEvidenceItems = 8;
+        private int mindMapSnippetChars = 120;
 
         public boolean isUseMock() {
             return useMock;
@@ -457,6 +473,62 @@ public class RagProperties {
 
         public void setCircuitBreakerOpenMs(int circuitBreakerOpenMs) {
             this.circuitBreakerOpenMs = circuitBreakerOpenMs;
+        }
+
+        public boolean isEnableWebPreprocess() {
+            return enableWebPreprocess;
+        }
+
+        public void setEnableWebPreprocess(boolean enableWebPreprocess) {
+            this.enableWebPreprocess = enableWebPreprocess;
+        }
+
+        public boolean isEnableWebDecompose() {
+            return enableWebDecompose;
+        }
+
+        public void setEnableWebDecompose(boolean enableWebDecompose) {
+            this.enableWebDecompose = enableWebDecompose;
+        }
+
+        public int getMaxWebSubQueries() {
+            return maxWebSubQueries;
+        }
+
+        public void setMaxWebSubQueries(int maxWebSubQueries) {
+            this.maxWebSubQueries = maxWebSubQueries;
+        }
+
+        public boolean isEnableMindMapPreprocess() {
+            return enableMindMapPreprocess;
+        }
+
+        public void setEnableMindMapPreprocess(boolean enableMindMapPreprocess) {
+            this.enableMindMapPreprocess = enableMindMapPreprocess;
+        }
+
+        public int getMindMapMaxAnswerChars() {
+            return mindMapMaxAnswerChars;
+        }
+
+        public void setMindMapMaxAnswerChars(int mindMapMaxAnswerChars) {
+            this.mindMapMaxAnswerChars = mindMapMaxAnswerChars;
+        }
+
+        public int getMindMapMaxEvidenceItems() {
+            return mindMapMaxEvidenceItems;
+        }
+
+        public void setMindMapMaxEvidenceItems(int mindMapMaxEvidenceItems) {
+            this.mindMapMaxEvidenceItems = mindMapMaxEvidenceItems;
+        }
+
+        public int getMindMapSnippetChars() {
+            return mindMapSnippetChars;
+        }
+
+        public void setMindMapSnippetChars(int mindMapSnippetChars) {
+            this.mindMapSnippetChars = mindMapSnippetChars;
         }
     }
 

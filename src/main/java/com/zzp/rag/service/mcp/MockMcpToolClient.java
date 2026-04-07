@@ -84,21 +84,31 @@ public class MockMcpToolClient implements McpToolClient {
     @Override
     public MindMapCommand generateMindMap(String question, String answer, DataSourceType sourceType,
             List<RetrievalChunk> evidence) {
+        String fallbackReason = "mock-enabled";
         if (!ragProperties.getMcp().isUseMock()) {
             MindMapCommand remote = generateMindMapViaHttp(question, answer, sourceType, evidence);
             if (remote != null) {
                 return remote;
             }
+            fallbackReason = "diagram-call-failed";
         }
+        return buildFallbackMindMapCommand(question, answer, sourceType, evidence, fallbackReason);
+    }
 
+    private MindMapCommand buildFallbackMindMapCommand(
+            String question,
+            String answer,
+            DataSourceType sourceType,
+            List<RetrievalChunk> evidence,
+            String reason) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("topic", question);
-        arguments.put("source", sourceType.name());
+        arguments.put("source", sourceType == null ? DataSourceType.KNOWLEDGE_BASE.name() : sourceType.name());
         arguments.put("summary", safeSnippet(answer));
         arguments.put("evidenceCount", evidence == null ? 0 : evidence.size());
         arguments.put("mcpFallback", true);
+        arguments.put("mcpFallbackReason", reason == null || reason.isBlank() ? "fallback" : reason);
         arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
-
         return new MindMapCommand("mindmap.generate", arguments);
     }
 
@@ -194,13 +204,18 @@ public class MockMcpToolClient implements McpToolClient {
             if (imageUrl.isBlank()) {
                 imageUrl = firstText(root.path("data"), "imageUrl", "diagramUrl", "url");
             }
+            boolean fallback = false;
             if (!imageUrl.isBlank()) {
                 arguments.put("imageUrl", imageUrl);
             }
             if (!arguments.containsKey("imageUrl")) {
                 arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
+                fallback = true;
             }
-            arguments.put("mcpFallback", false);
+            arguments.put("mcpFallback", fallback);
+            if (fallback) {
+                arguments.put("mcpFallbackReason", "diagram-response-missing-image-url");
+            }
             arguments.put("mcpEndpoint", callResult.endpoint());
             log.info("MCP diagram succeeded via endpoint={}, hasImageUrl={}", callResult.endpoint(),
                     arguments.get("imageUrl") != null);
@@ -229,6 +244,7 @@ public class MockMcpToolClient implements McpToolClient {
             try {
                 JsonNode root = postJsonWithRetry(url, payload, feature);
                 recordSuccess(feature, url);
+                log.info("MCP {} endpoint succeeded: {}", feature, url);
                 return new JsonCallResult(url, root);
             } catch (Exception ex) {
                 recordFailure(feature, url);
@@ -321,6 +337,7 @@ public class MockMcpToolClient implements McpToolClient {
                 int openMs = Math.max(1000, ragProperties.getMcp().getCircuitBreakerOpenMs());
                 state.openUntilMs = System.currentTimeMillis() + openMs;
                 state.consecutiveFailures = 0;
+                log.warn("MCP {} circuit opened for endpoint={}, openMs={}", feature, url, openMs);
             }
         }
     }

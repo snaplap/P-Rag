@@ -1,6 +1,7 @@
 package com.zzp.rag.controller;
 
 import jakarta.validation.ConstraintViolationException;
+import com.zzp.rag.service.retrieval.RemoteVectorStoreException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -43,6 +44,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(errorBody(ex.getMessage()));
+    }
+
+    /**
+     * 处理远端向量存储异常。
+     */
+    @ExceptionHandler(RemoteVectorStoreException.class)
+    public ResponseEntity<Map<String, Object>> handleRemoteVectorStore(RemoteVectorStoreException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorBody(ex.getMessage()));
     }
 
     /**
