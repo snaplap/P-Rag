@@ -47,6 +47,6 @@ http://localhost:8080/
 
 ## 4. 展示
 
-  pictures\9761d520-7efb-4d34-ba5a-d80c8383e79b.png
+  ![示例图片](pictures\9761d520-7efb-4d34-ba5a-d80c8383e79b.png)
 
-  pictures\91221cab-5208-49d2-822c-56a92d817228.png
+  ![示例图片](pictures\91221cab-5208-49d2-822c-56a92d817228.png)
