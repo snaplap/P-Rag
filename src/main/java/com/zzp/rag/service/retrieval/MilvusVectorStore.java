@@ -723,14 +723,16 @@ public class MilvusVectorStore implements VectorStore {
                     log.info("Milvus collection already exists: {}", ragProperties.getMilvus().getCollection());
                     return;
                 }
-                log.warn("Milvus enhanced collection create failed, fallback to basic payload, collection={}, reason={}",
+                log.warn(
+                        "Milvus enhanced collection create failed, fallback to basic payload, collection={}, reason={}",
                         ragProperties.getMilvus().getCollection(), ex.getMessage());
                 log.debug("Milvus enhanced collection create stacktrace", ex);
 
                 try {
                     postMilvus("/v2/vectordb/collections/create", basicPayload);
                     remoteCollectionReady = true;
-                    log.info("Milvus collection ready via basic payload: {}", ragProperties.getMilvus().getCollection());
+                    log.info("Milvus collection ready via basic payload: {}",
+                            ragProperties.getMilvus().getCollection());
                 } catch (Exception fallbackEx) {
                     if (isAlreadyExistsError(fallbackEx)) {
                         remoteCollectionReady = true;
@@ -805,7 +807,8 @@ public class MilvusVectorStore implements VectorStore {
 
         String code = stringValue(response.get("code"), response.get("status"), response.get("error_code"));
         String message = stringValue(response.get("message"), response.get("msg"), response.get("reason"));
-        String compactBody = rawBody == null ? "" : (rawBody.length() > 240 ? rawBody.substring(0, 240) + "..." : rawBody);
+        String compactBody = rawBody == null ? ""
+                : (rawBody.length() > 240 ? rawBody.substring(0, 240) + "..." : rawBody);
         throw new IllegalStateException(
                 "Milvus business failure, path=" + path + ", code=" + code + ", message=" + message + ", body="
                         + compactBody);
