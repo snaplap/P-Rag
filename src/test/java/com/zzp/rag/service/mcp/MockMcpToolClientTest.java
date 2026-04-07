@@ -239,7 +239,8 @@ class MockMcpToolClientTest {
             Assertions.assertEquals(Boolean.FALSE, command.arguments().get("mcpFallback"));
             Assertions.assertEquals(Boolean.TRUE, command.arguments().get("krokiRelayed"));
             Assertions.assertEquals(lowQualityDataUrl, command.arguments().get("upstreamImageUrl"));
-            Assertions.assertTrue(String.valueOf(command.arguments().get("imageUrl")).startsWith("data:image/svg+xml;base64,"));
+            Assertions.assertTrue(
+                    String.valueOf(command.arguments().get("imageUrl")).startsWith("data:image/svg+xml;base64,"));
         } finally {
             diagramServer.stop(0);
             krokiServer.stop(0);

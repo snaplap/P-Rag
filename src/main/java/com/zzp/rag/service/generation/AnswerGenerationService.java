@@ -35,7 +35,7 @@ public class AnswerGenerationService {
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
     private static final Pattern MARKDOWN_HEADING_PATTERN = Pattern.compile("^#{1,6}\\s+.*$");
     private static final Pattern MARKDOWN_BULLET_PATTERN = Pattern.compile("^[-*+]\\s+.*$");
-        private static final Pattern MOCK_SOURCE_PATTERN = Pattern.compile("(?i)mocksearch-\\d+");
+    private static final Pattern MOCK_SOURCE_PATTERN = Pattern.compile("(?i)mocksearch-\\d+");
 
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
@@ -453,7 +453,7 @@ public class AnswerGenerationService {
                 .append("如果证据不足，明确说不确定，不要编造。")
                 .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
                 .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
-            .append("不要输出 MockSearch、可参考来源列表或检索机制说明。")
+                .append("不要输出 MockSearch、可参考来源列表或检索机制说明。")
                 .append("回答默认使用2-4句自然段，仅当用户明确要求步骤时再使用列表。")
                 .append("来源引用使用可读名称，不要输出内部ID。")
                 .append("来源类型=")
