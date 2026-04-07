@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,7 +105,7 @@ public class MockMcpToolClient implements McpToolClient {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("topic", question);
         arguments.put("source", sourceType == null ? DataSourceType.KNOWLEDGE_BASE.name() : sourceType.name());
-        arguments.put("summary", safeSnippet(answer));
+        arguments.put("summary", buildMindMapSummary(answer));
         arguments.put("evidenceCount", evidence == null ? 0 : evidence.size());
         arguments.put("mcpFallback", true);
         arguments.put("mcpFallbackReason", reason == null || reason.isBlank() ? "fallback" : reason);
@@ -113,14 +114,43 @@ public class MockMcpToolClient implements McpToolClient {
     }
 
     /**
-     * 截断回答摘要，避免下游 payload 过大。
+     * 构建导图摘要，优先提取回答中的可读要点，避免把机制性文本透传到导图元数据。
      */
-    private String safeSnippet(String answer) {
+    private String buildMindMapSummary(String answer) {
         if (answer == null || answer.isBlank()) {
             return "";
         }
-        int max = Math.min(180, answer.length());
-        return answer.substring(0, max);
+
+        List<String> points = collectMindMapHighlights(answer, 3);
+
+        if (points.isEmpty()) {
+            return buildFallbackSummary(answer);
+        }
+        return limit(String.join("；", points), 120);
+    }
+
+    private String buildFallbackSummary(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return "";
+        }
+
+        List<String> sentences = new ArrayList<>();
+        String[] parts = answer.split("[。！？!?\\n]");
+        for (String part : parts) {
+            String normalized = normalizeSummaryText(part);
+            if (normalized.isBlank() || isMindMapNoise(normalized)) {
+                continue;
+            }
+            sentences.add(normalized);
+            if (sentences.size() >= 2) {
+                break;
+            }
+        }
+
+        if (!sentences.isEmpty()) {
+            return limit(String.join("；", sentences), 80);
+        }
+        return limit(normalizeSummaryText(answer), 60);
     }
 
     /**
@@ -173,10 +203,11 @@ public class MockMcpToolClient implements McpToolClient {
             DataSourceType sourceType,
             List<RetrievalChunk> evidence) {
         try {
+            String sourceName = sourceType == null ? DataSourceType.KNOWLEDGE_BASE.name() : sourceType.name();
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("topic", question);
-            payload.put("summary", safeSnippet(answer));
-            payload.put("source", sourceType.name());
+            payload.put("summary", buildMindMapSummary(answer));
+            payload.put("source", sourceName);
             payload.put("evidenceCount", evidence == null ? 0 : evidence.size());
 
             JsonCallResult callResult = postJsonWithAlternatives(
@@ -196,8 +227,8 @@ public class MockMcpToolClient implements McpToolClient {
                 arguments = objectMapper.convertValue(argsNode, Map.class);
             } else {
                 arguments.put("topic", question);
-                arguments.put("source", sourceType.name());
-                arguments.put("summary", safeSnippet(answer));
+                arguments.put("source", sourceName);
+                arguments.put("summary", buildMindMapSummary(answer));
             }
 
             String imageUrl = firstText(root, "imageUrl", "diagramUrl", "url");
@@ -440,32 +471,30 @@ public class MockMcpToolClient implements McpToolClient {
             String answer,
             DataSourceType sourceType,
             List<RetrievalChunk> evidence) {
-        List<MindBranch> branches = buildMindMapBranches(answer, evidence);
+        List<MindBranch> branches = buildMindMapBranches(answer);
         String root = sanitizeMermaidText(limit(question, 24));
 
         StringBuilder builder = new StringBuilder();
         builder.append("mindmap\n");
         builder.append("  root((").append(root).append("))\n");
-        builder.append("    ").append(sanitizeMermaidText(sourceType == null ? "信息来源" : sourceType.name()))
-                .append("\n");
 
         if (!branches.isEmpty()) {
             MindBranch first = branches.get(0);
-            builder.append("    核心观点\n");
+            builder.append("    结论摘要\n");
             builder.append("      ").append(sanitizeMermaidText(limit(first.title(), 18))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(first.leftLeaf(), 22))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(first.rightLeaf(), 22))).append("\n");
         }
         if (branches.size() > 1) {
             MindBranch second = branches.get(1);
-            builder.append("    关键依据\n");
+            builder.append("    优化建议\n");
             builder.append("      ").append(sanitizeMermaidText(limit(second.title(), 18))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(second.leftLeaf(), 22))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(second.rightLeaf(), 22))).append("\n");
         }
         if (branches.size() > 2) {
             MindBranch third = branches.get(2);
-            builder.append("    行动建议\n");
+            builder.append("    执行动作\n");
             builder.append("      ").append(sanitizeMermaidText(limit(third.title(), 18))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(third.leftLeaf(), 22))).append("\n");
             builder.append("        ").append(sanitizeMermaidText(limit(third.rightLeaf(), 22))).append("\n");
@@ -809,8 +838,7 @@ public class MockMcpToolClient implements McpToolClient {
             DataSourceType sourceType,
             List<RetrievalChunk> evidence) {
         String topic = xmlEscape(limit(question, 20));
-        String source = xmlEscape(sourceType == null ? "UNKNOWN" : sourceType.name());
-        List<MindBranch> branches = buildMindMapBranches(answer, evidence);
+        List<MindBranch> branches = buildMindMapBranches(answer);
 
         int[][] branchBox = {
                 { 90, 188 },
@@ -830,7 +858,7 @@ public class MockMcpToolClient implements McpToolClient {
                 .append("<rect width='980' height='580' fill='url(#g)'/>");
 
         appendNode(svg, 350, 42, 280, 66, topic, 22, "#ffffff", "#5fa9d6", "#194f72");
-        appendText(svg, 36, 548, "来源: " + source, 14, "#356789", "start");
+        appendText(svg, 36, 548, "结论导图", 14, "#356789", "start");
 
         for (int i = 0; i < 3; i++) {
             MindBranch branch = branches.get(i);
@@ -859,42 +887,10 @@ public class MockMcpToolClient implements McpToolClient {
     }
 
     /**
-     * 从回答与证据中提取导图分支。
+     * 从回答中提取导图分支。
      */
-    private List<MindBranch> buildMindMapBranches(String answer, List<RetrievalChunk> evidence) {
-        List<String> candidates = new ArrayList<>();
-
-        if (answer != null && !answer.isBlank()) {
-            String[] lines = answer.split("\\r?\\n");
-            for (String line : lines) {
-                String normalized = normalizeNodeText(line);
-                if (!normalized.isBlank()) {
-                    candidates.add(normalized);
-                }
-            }
-        }
-
-        if (evidence != null) {
-            for (int i = 0; i < Math.min(2, evidence.size()); i++) {
-                RetrievalChunk chunk = evidence.get(i);
-                if (chunk == null || chunk.content() == null) {
-                    continue;
-                }
-                String[] parts = chunk.content().split("[。；;\\n]");
-                for (String part : parts) {
-                    String normalized = normalizeNodeText(part);
-                    if (!normalized.isBlank()) {
-                        candidates.add(normalized);
-                    }
-                    if (candidates.size() >= 20) {
-                        break;
-                    }
-                }
-                if (candidates.size() >= 20) {
-                    break;
-                }
-            }
-        }
+    private List<MindBranch> buildMindMapBranches(String answer) {
+        List<String> candidates = collectMindMapHighlights(answer, 12);
 
         Map<String, String> uniqueByKey = new LinkedHashMap<>();
         for (String candidate : candidates) {
@@ -920,23 +916,67 @@ public class MockMcpToolClient implements McpToolClient {
         }
 
         if (readable.isEmpty()) {
-            readable = List.of("主题背景", "关键要点", "结论建议", "核心信息", "应用场景", "风险提示");
+            readable = List.of("关键结论", "可执行建议", "优先动作", "方案要点", "风险提醒", "落地路径");
         }
 
         List<MindBranch> branches = new ArrayList<>();
         branches.add(new MindBranch(
-                pick(readable, 0, "主题背景"),
-                pick(readable, 3, "背景说明"),
-                pick(readable, 4, "上下文")));
+                pick(readable, 0, "关键结论"),
+                pick(readable, 3, "结论补充"),
+                pick(readable, 4, "结论依据")));
         branches.add(new MindBranch(
-                pick(readable, 1, "关键要点"),
-                pick(readable, 5, "核心内容"),
-                pick(readable, 6, "细节补充")));
+                pick(readable, 1, "可执行建议"),
+                pick(readable, 5, "优先顺序"),
+                pick(readable, 6, "实施要点")));
         branches.add(new MindBranch(
-                pick(readable, 2, "结论建议"),
-                pick(readable, 7, "风险提示"),
+                pick(readable, 2, "优先动作"),
+                pick(readable, 7, "风险提醒"),
                 pick(readable, 8, "后续行动")));
         return branches;
+    }
+
+    private List<String> collectMindMapHighlights(String answer, int maxItems) {
+        if (answer == null || answer.isBlank() || maxItems <= 0) {
+            return List.of();
+        }
+
+        List<HighlightCandidate> ranked = new ArrayList<>();
+        int order = 0;
+        for (String piece : splitAnswerPieces(answer)) {
+            String normalized = normalizeNodeText(piece);
+            if (normalized.isBlank() || isMindMapNoise(normalized)) {
+                continue;
+            }
+            ranked.add(new HighlightCandidate(normalized, scoreCandidate(normalized), order++));
+        }
+
+        ranked.sort(Comparator
+                .comparingInt(HighlightCandidate::score).reversed()
+                .thenComparingInt(HighlightCandidate::order));
+
+        Map<String, String> dedup = new LinkedHashMap<>();
+        for (HighlightCandidate candidate : ranked) {
+            dedup.putIfAbsent(candidate.text().toLowerCase(Locale.ROOT), candidate.text());
+            if (dedup.size() >= maxItems) {
+                break;
+            }
+        }
+        return new ArrayList<>(dedup.values());
+    }
+
+    private int scoreCandidate(String text) {
+        int score = 0;
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "结论", "建议", "应", "需要", "优先", "推荐", "方案", "措施", "行动", "下一步", "改进", "优化", "提升", "避免")) {
+            score += 8;
+        }
+        if (containsAny(lower, "因此", "所以", "综上", "可", "应当", "建议先")) {
+            score += 4;
+        }
+        if (text.length() >= 6 && text.length() <= 18) {
+            score += 2;
+        }
+        return score;
     }
 
     /**
@@ -960,6 +1000,7 @@ public class MockMcpToolClient implements McpToolClient {
         String normalized = text
                 .replaceAll("`", "")
                 .replaceAll("^[-*#>\\d.\\s]+", "")
+                .replaceAll("!\\[[^]]*\\]\\([^)]+\\)", "")
                 .replaceAll("\\[[^]]+\\]\\([^)]+\\)", "")
                 .replaceAll("\\s+", " ")
                 .trim();
@@ -968,6 +1009,81 @@ public class MockMcpToolClient implements McpToolClient {
             return "";
         }
         return limit(normalized, 20);
+    }
+
+    private String normalizeSummaryText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String normalized = text
+                .replaceAll("`", "")
+                .replaceAll("^[-*#>\\d.\\s]+", "")
+                .replaceAll("!\\[[^]]*\\]\\([^)]+\\)", "")
+                .replaceAll("\\[[^]]+\\]\\([^)]+\\)", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.length() < 4) {
+            return "";
+        }
+        return limit(normalized, 48);
+    }
+
+    private List<String> splitAnswerPieces(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return List.of();
+        }
+        List<String> pieces = new ArrayList<>();
+        String normalizedAnswer = answer
+                .replaceAll("(?m)^\\s*[-*]\\s+", "\n")
+                .replaceAll("(?m)^\\s*\\d+[.)]\\s+", "\n");
+        String[] lines = normalizedAnswer.split("\\r?\\n");
+        for (String line : lines) {
+            if (line == null || line.isBlank()) {
+                continue;
+            }
+            String[] segments = line.split("[。；;！？!?]");
+            for (String segment : segments) {
+                if (segment != null && !segment.isBlank()) {
+                    pieces.add(segment);
+                }
+            }
+        }
+        if (pieces.isEmpty()) {
+            pieces.add(answer);
+        }
+        return pieces;
+    }
+
+    private boolean isMindMapNoise(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("summary")
+                || lower.contains("source")
+                || lower.contains("evidence")
+                || lower.contains("mocksearch")
+                || lower.contains("mcp")
+                || text.contains("来源")
+                || text.contains("证据")
+                || text.contains("向量检索")
+                || text.contains("机制")
+                || text.contains("基于")
+                || text.contains("根据")
+                || text.contains("检索")
+                || text.contains("排序");
+    }
+
+    private boolean containsAny(String text, String... words) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        for (String word : words) {
+            if (word != null && !word.isBlank() && text.contains(word)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void appendLine(StringBuilder svg, int x1, int y1, int x2, int y2, String color, double width) {
@@ -1013,6 +1129,9 @@ public class MockMcpToolClient implements McpToolClient {
     }
 
     private record MindBranch(String title, String leftLeaf, String rightLeaf) {
+    }
+
+    private record HighlightCandidate(String text, int score, int order) {
     }
 
     private record JsonCallResult(String endpoint, JsonNode root) {

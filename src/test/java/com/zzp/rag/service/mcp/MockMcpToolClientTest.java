@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer;
 import com.zzp.rag.config.RagProperties;
 import com.zzp.rag.domain.dto.MindMapCommand;
 import com.zzp.rag.domain.model.DataSourceType;
+import com.zzp.rag.domain.model.RetrievalChunk;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +38,95 @@ class MockMcpToolClientTest {
         Assertions.assertTrue(imageUrl instanceof String);
         Assertions.assertTrue(((String) imageUrl).startsWith("data:image/svg+xml;base64,"));
     }
+
+    @Test
+    void shouldBuildFallbackMindMapFromAnswerOnly() {
+        RagProperties properties = new RagProperties();
+        properties.getMcp().setUseMock(true);
+
+        MockMcpToolClient client = new MockMcpToolClient(properties, new ObjectMapper());
+        MindMapCommand command = client.generateMindMap(
+                "测试主题",
+                "核心结论一\n核心结论二",
+                DataSourceType.KNOWLEDGE_BASE,
+                java.util.List.of(
+                        new RetrievalChunk("1", "doc-a", "证据原文XYZ不应进入导图", 0.95d,
+                                DataSourceType.KNOWLEDGE_BASE)));
+
+        Assertions.assertNotNull(command);
+        Map<String, Object> arguments = command.arguments();
+        Assertions.assertNotNull(arguments);
+        Assertions.assertTrue(String.valueOf(arguments.get("summary")).contains("核心结论一"));
+        Assertions.assertFalse(String.valueOf(arguments.get("summary")).contains("证据原文XYZ"));
+
+        String imageUrl = String.valueOf(arguments.get("imageUrl"));
+        String svg = new String(
+                Base64.getDecoder().decode(imageUrl.substring("data:image/svg+xml;base64,".length())),
+                StandardCharsets.UTF_8);
+        Assertions.assertTrue(svg.contains("核心结论一") || svg.contains("核心结论二"));
+        Assertions.assertFalse(svg.contains("证据原文XYZ"));
+    }
+
+    @Test
+    void shouldFilterNoiseFromMindMapSummary() {
+        RagProperties properties = new RagProperties();
+        properties.getMcp().setUseMock(true);
+
+        MockMcpToolClient client = new MockMcpToolClient(properties, new ObjectMapper());
+        MindMapCommand command = client.generateMindMap(
+                "主题",
+                "来源: WEB\n证据: 3条\n建议先完成数据治理",
+                DataSourceType.HYBRID,
+                java.util.List.of());
+
+        String summary = String.valueOf(command.arguments().get("summary"));
+        Assertions.assertFalse(summary.contains("来源"));
+        Assertions.assertFalse(summary.contains("证据"));
+        Assertions.assertTrue(summary.contains("建议先完成数据治理"));
+    }
+
+        @Test
+        void shouldGenerateConclusionFirstSummaryFromLongParagraph() {
+        RagProperties properties = new RagProperties();
+        properties.getMcp().setUseMock(true);
+
+        MockMcpToolClient client = new MockMcpToolClient(properties, new ObjectMapper());
+        String answer = "根据向量检索结果与排序机制，当前流程存在噪声。"
+            + "结论是先完成数据清理并统一字段口径。"
+            + "建议优先修复低质量文档再扩展召回范围。";
+        MindMapCommand command = client.generateMindMap(
+            "主题",
+            answer,
+            DataSourceType.HYBRID,
+            java.util.List.of());
+
+        String summary = String.valueOf(command.arguments().get("summary"));
+        Assertions.assertTrue(summary.contains("结论") || summary.contains("建议"));
+        Assertions.assertFalse(summary.contains("向量检索"));
+        Assertions.assertFalse(summary.contains("排序机制"));
+        Assertions.assertTrue(summary.length() <= 120);
+        }
+
+        @Test
+        void shouldExtractSummaryFromListAnswer() {
+        RagProperties properties = new RagProperties();
+        properties.getMcp().setUseMock(true);
+
+        MockMcpToolClient client = new MockMcpToolClient(properties, new ObjectMapper());
+        String answer = "1. 结论：需要先修正文档结构\n"
+            + "2. 建议：按优先级处理历史数据\n"
+            + "3. 行动：本周完成清洗任务";
+
+        MindMapCommand command = client.generateMindMap(
+            "主题",
+            answer,
+            DataSourceType.KNOWLEDGE_BASE,
+            java.util.List.of());
+
+        String summary = String.valueOf(command.arguments().get("summary"));
+        Assertions.assertTrue(summary.contains("结论") || summary.contains("建议") || summary.contains("行动"));
+        Assertions.assertFalse(summary.contains("1."));
+        }
 
     @Test
     void shouldMarkMindMapAsFallbackWhenRemoteDiagramCallFails() {
