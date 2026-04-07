@@ -2,11 +2,13 @@ package com.zzp.rag.service.generation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zzp.rag.config.RagProperties;
+import com.zzp.rag.domain.trace.ConversationTurn;
 import com.zzp.rag.domain.model.DataSourceType;
 import com.zzp.rag.domain.model.RetrievalChunk;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 class AnswerGenerationServiceTest {
@@ -52,6 +54,30 @@ class AnswerGenerationServiceTest {
 
         Assertions.assertFalse(outcome.llmUsed());
         Assertions.assertFalse(outcome.answer().contains(uuid));
-        Assertions.assertTrue(outcome.answer().contains("参考资料"));
+        Assertions.assertFalse(outcome.answer().contains("可参考来源"));
+        Assertions.assertFalse(outcome.answer().contains("参考资料"));
+        }
+
+        @Test
+        void shouldStripMechanismDescriptionsFromFallbackAnswer() {
+        RagProperties properties = new RagProperties();
+        properties.getLlm().setApiKey("");
+
+        AnswerGenerationService service = new AnswerGenerationService(properties, new ObjectMapper());
+
+        AnswerGenerationService.GenerationOutcome outcome = service.generateAnswerWithDiagnostics(
+            "请给我结论",
+            List.of(new ConversationTurn("上一轮问题", "上一轮回答", Instant.now())),
+            List.of(new RetrievalChunk(
+                "web-1",
+                "MockSearch-1",
+                "以上结论综合自主流技术分析（MockSearch-1/2/3），但具体案例或实证数据未在证据中提供。",
+                0.72d,
+                DataSourceType.WEB)),
+            DataSourceType.WEB);
+
+        Assertions.assertFalse(outcome.answer().contains("MockSearch"));
+        Assertions.assertFalse(outcome.answer().contains("以上结论综合"));
+        Assertions.assertFalse(outcome.answer().contains("证据中未提供"));
     }
 }

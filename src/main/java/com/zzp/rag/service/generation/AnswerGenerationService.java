@@ -35,6 +35,7 @@ public class AnswerGenerationService {
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
     private static final Pattern MARKDOWN_HEADING_PATTERN = Pattern.compile("^#{1,6}\\s+.*$");
     private static final Pattern MARKDOWN_BULLET_PATTERN = Pattern.compile("^[-*+]\\s+.*$");
+        private static final Pattern MOCK_SOURCE_PATTERN = Pattern.compile("(?i)mocksearch-\\d+");
 
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
@@ -86,7 +87,7 @@ public class AnswerGenerationService {
         String fallback = fallbackAnswer(question, history, evidence, sourceType);
 
         LlmCallResult llmResult = askLlmIfConfigured(question, history, evidence, sourceType, streamConsumer);
-        String llmAnswer = llmResult.answer();
+        String llmAnswer = sanitizeUserFacingAnswer(llmResult.answer());
         if (llmAnswer != null && !llmAnswer.isBlank() && !isLowValueAnswer(llmAnswer)) {
             return new GenerationOutcome(llmAnswer.trim(), true, null);
         }
@@ -98,7 +99,7 @@ public class AnswerGenerationService {
         if (fallbackReason == null || fallbackReason.isBlank()) {
             fallbackReason = "LLM_UNKNOWN_FALLBACK";
         }
-        return new GenerationOutcome(fallback, false, fallbackReason);
+        return new GenerationOutcome(sanitizeUserFacingAnswer(fallback), false, fallbackReason);
     }
 
     /**
@@ -118,25 +119,49 @@ public class AnswerGenerationService {
         StringBuilder builder = new StringBuilder();
         builder.append(composeEvidenceSummary(question, evidence));
 
-        if (history != null && !history.isEmpty()) {
-            ConversationTurn latestTurn = history.get(history.size() - 1);
-            builder.append("\n\n");
-            builder.append("结合你上一轮提问“")
-                    .append(trimSnippet(latestTurn.question(), 48))
-                    .append("”，我优先按当前会话语境来组织以上结论。");
-        }
-
-        builder.append("\n\n可参考来源：\n");
-        int refLimit = Math.min(3, evidence.size());
-        for (int i = 0; i < refLimit; i++) {
-            RetrievalChunk chunk = evidence.get(i);
-            builder.append(i + 1)
-                    .append(". ")
-                    .append(readableSource(chunk, i + 1))
-                    .append("\n");
-        }
-
         return builder.toString().trim();
+    }
+
+    private String sanitizeUserFacingAnswer(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return "";
+        }
+
+        String normalized = answer
+                .replace("\r", "")
+                .replaceAll("(?m)^\\s*可参考来源[:：]\\s*$", "")
+                .replaceAll("(?m)^\\s*\\d+\\.\\s*参考资料\\d+\\s*$", "")
+                .replaceAll("(?m)^\\s*\\d+\\.\\s*MockSearch-\\d+\\s*$", "")
+                .replaceAll("以上结论综合[^。！？\\n]*[。！？]?", "")
+                .replaceAll("但具体案例或实证数据未在证据中提供[。！？]?", "")
+                .replaceAll("(?i)MockSearch-\\d+", "")
+                .trim();
+
+        List<String> filtered = new ArrayList<>();
+        for (String line : normalized.split("\\n")) {
+            String trimmed = line == null ? "" : line.trim();
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if (isMechanismDescriptionLine(trimmed)) {
+                continue;
+            }
+            filtered.add(trimmed);
+        }
+
+        if (filtered.isEmpty()) {
+            return "这个问题目前信息不足，暂时无法给出准确结论。请补充关键背景后再试。";
+        }
+        return String.join("\n", filtered).trim();
+    }
+
+    private boolean isMechanismDescriptionLine(String line) {
+        String lower = line.toLowerCase(Locale.ROOT);
+        return MOCK_SOURCE_PATTERN.matcher(line).find()
+                || lower.contains("可参考来源")
+                || lower.contains("证据中未提供")
+                || lower.contains("以上结论综合")
+                || lower.contains("联网检索模拟结果");
     }
 
     /**
@@ -428,6 +453,7 @@ public class AnswerGenerationService {
                 .append("如果证据不足，明确说不确定，不要编造。")
                 .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
                 .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
+            .append("不要输出 MockSearch、可参考来源列表或检索机制说明。")
                 .append("回答默认使用2-4句自然段，仅当用户明确要求步骤时再使用列表。")
                 .append("来源引用使用可读名称，不要输出内部ID。")
                 .append("来源类型=")

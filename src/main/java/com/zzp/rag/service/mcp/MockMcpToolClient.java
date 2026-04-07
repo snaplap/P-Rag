@@ -210,6 +210,8 @@ public class MockMcpToolClient implements McpToolClient {
 
             String fallbackImageUrl = buildSvgMindMapDataUrl(question, answer, sourceType, evidence);
             String mermaidSource = extractMermaidSource(root, arguments, question, answer, sourceType, evidence);
+            boolean upstreamFallbackImage = isLikelyUpstreamFallbackImage(imageUrl);
+            boolean lowQualityTemplateImage = isLikelyLowQualityTemplateImage(imageUrl);
             boolean fallback = false;
             String fallbackReason = null;
 
@@ -223,7 +225,7 @@ public class MockMcpToolClient implements McpToolClient {
                     fallback = true;
                     fallbackReason = "diagram-response-missing-image-url";
                 }
-            } else if (isLikelyUpstreamFallbackImage(imageUrl)) {
+            } else if (upstreamFallbackImage || lowQualityTemplateImage) {
                 String relayed = relayMermaidToDataUrl(mermaidSource);
                 if (!relayed.isBlank()) {
                     arguments.put("imageUrl", relayed);
@@ -233,7 +235,9 @@ public class MockMcpToolClient implements McpToolClient {
                     arguments.put("imageUrl", fallbackImageUrl);
                     arguments.put("upstreamImageUrl", imageUrl);
                     fallback = true;
-                    fallbackReason = "diagram-upstream-fallback-image";
+                    fallbackReason = upstreamFallbackImage
+                            ? "diagram-upstream-fallback-image"
+                            : "diagram-upstream-low-quality-image";
                 }
             } else if (!isBrowserRenderableImageUrl(imageUrl)) {
                 String relayed = relayKrokiUrlToDataUrl(imageUrl);
@@ -389,6 +393,27 @@ public class MockMcpToolClient implements McpToolClient {
         }
     }
 
+    private boolean isLikelyLowQualityTemplateImage(String imageUrl) {
+        if (imageUrl == null || !imageUrl.startsWith("data:image/svg+xml;base64,")) {
+            return false;
+        }
+
+        try {
+            String base64 = imageUrl.substring("data:image/svg+xml;base64,".length());
+            String decoded = new String(Base64.getDecoder().decode(base64), StandardCharsets.UTF_8)
+                    .toLowerCase(Locale.ROOT);
+            boolean hasTemplateTokens = decoded.contains("summary:")
+                    && decoded.contains("source:")
+                    && decoded.contains("evidence:");
+            boolean hasChineseTemplateTokens = decoded.contains("总结")
+                    && decoded.contains("来源")
+                    && decoded.contains("证据");
+            return hasTemplateTokens || hasChineseTemplateTokens;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private String extractMermaidSource(
             JsonNode root,
             Map<String, Object> arguments,
@@ -421,16 +446,29 @@ public class MockMcpToolClient implements McpToolClient {
         StringBuilder builder = new StringBuilder();
         builder.append("mindmap\n");
         builder.append("  root((").append(root).append("))\n");
-        builder.append("    ").append(sanitizeMermaidText(sourceType == null ? "UNKNOWN" : sourceType.name()))
+        builder.append("    ").append(sanitizeMermaidText(sourceType == null ? "信息来源" : sourceType.name()))
                 .append("\n");
 
-        for (MindBranch branch : branches) {
-            String title = sanitizeMermaidText(limit(branch.title(), 16));
-            String leftLeaf = sanitizeMermaidText(limit(branch.leftLeaf(), 20));
-            String rightLeaf = sanitizeMermaidText(limit(branch.rightLeaf(), 20));
-            builder.append("    ").append(title).append("\n");
-            builder.append("      ").append(leftLeaf).append("\n");
-            builder.append("      ").append(rightLeaf).append("\n");
+        if (!branches.isEmpty()) {
+            MindBranch first = branches.get(0);
+            builder.append("    核心观点\n");
+            builder.append("      ").append(sanitizeMermaidText(limit(first.title(), 18))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(first.leftLeaf(), 22))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(first.rightLeaf(), 22))).append("\n");
+        }
+        if (branches.size() > 1) {
+            MindBranch second = branches.get(1);
+            builder.append("    关键依据\n");
+            builder.append("      ").append(sanitizeMermaidText(limit(second.title(), 18))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(second.leftLeaf(), 22))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(second.rightLeaf(), 22))).append("\n");
+        }
+        if (branches.size() > 2) {
+            MindBranch third = branches.get(2);
+            builder.append("    行动建议\n");
+            builder.append("      ").append(sanitizeMermaidText(limit(third.title(), 18))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(third.leftLeaf(), 22))).append("\n");
+            builder.append("        ").append(sanitizeMermaidText(limit(third.rightLeaf(), 22))).append("\n");
         }
         return builder.toString();
     }
@@ -858,14 +896,20 @@ public class MockMcpToolClient implements McpToolClient {
             }
         }
 
-        List<String> unique = candidates.stream()
-                .map(v -> v.toLowerCase(Locale.ROOT))
-                .distinct()
-                .map(v -> v.replace("\u0000", ""))
-                .toList();
+        Map<String, String> uniqueByKey = new LinkedHashMap<>();
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            String normalized = candidate.replace("\u0000", "").trim();
+            if (normalized.isBlank()) {
+                continue;
+            }
+            uniqueByKey.putIfAbsent(normalized.toLowerCase(Locale.ROOT), normalized);
+        }
 
         List<String> readable = new ArrayList<>();
-        for (String item : unique) {
+        for (String item : uniqueByKey.values()) {
             if (item == null || item.isBlank()) {
                 continue;
             }
