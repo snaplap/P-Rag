@@ -1117,7 +1117,10 @@
         if (payload) {
           assistantMessage.source = payload.source || "知识库";
           currentHistory[currentHistory.length - 1] = { ...assistantMessage };
-          if (payload.uncertain) {
+          const highRisk = payload.evaluation
+            && typeof payload.evaluation === "object"
+            && String(payload.evaluation.hallucinationRisk || "").toUpperCase() === "HIGH";
+          if (highRisk) {
             minorHint.textContent = "当前回答存在不确定性，可补充文档后再试";
             minorHint.className = "warn";
           }
@@ -1128,7 +1131,7 @@
                 const fallbackReason = mindMapRender.reason ? "（原因: " + mindMapRender.reason + "）" : "";
                 minorHint.textContent = "已生成回退导图" + fallbackReason;
                 minorHint.className = "warn";
-              } else if (!payload.uncertain) {
+              } else if (!highRisk) {
                 minorHint.textContent = "已触发思维导图生成";
                 minorHint.className = "";
               }
@@ -1442,18 +1445,39 @@
     s = s.replace(/\[([^\]]+)]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return s;
   }
+  
+  function isBrowserReachableImageUrl(url) {
+    if (!url || typeof url !== "string") {
+      return false;
+    }
+    if (url.startsWith("data:image/")) {
+      return true;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      return false;
+    }
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.hostname.toLowerCase() !== "kroki";
+    } catch (_) {
+      return false;
+    }
+  }
 
   function appendMindMapImage(command) {
     if (!command || !command.arguments) {
       return { rendered: false, fallback: false, reason: "" };
     }
-    const imageUrl = command.arguments.imageUrl || command.arguments.diagramUrl || command.arguments.url;
+    const primaryImageUrl = command.arguments.imageUrl || command.arguments.diagramUrl || command.arguments.url;
+    const backupImageUrl = command.arguments.backupImageUrl;
+    const usedBackup = !isBrowserReachableImageUrl(primaryImageUrl) && !!backupImageUrl;
+    const imageUrl = usedBackup ? backupImageUrl : primaryImageUrl;
     if (!imageUrl) {
       return { rendered: false, fallback: false, reason: "" };
     }
 
-    const isFallback = Boolean(command.arguments.mcpFallback);
-    const fallbackReason = command.arguments.mcpFallbackReason || "";
+    const isFallback = Boolean(command.arguments.mcpFallback) || usedBackup;
+    const fallbackReason = command.arguments.mcpFallbackReason || (usedBackup ? "browser-backup-image-url" : "");
 
     let tipTitle = "思维导图";
     if (isFallback) {

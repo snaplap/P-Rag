@@ -398,6 +398,9 @@ public class RagProperties {
         private boolean useMock = true;
         private String webSearchUrl = "http://localhost:18080/mcp/web-search/search";
         private String diagramUrl = "http://localhost:18081/mcp/diagram";
+        private boolean enableKrokiRelay = true;
+        private String krokiBaseUrl = "http://localhost:18083";
+        private int krokiTimeoutMs = 5000;
         private int callTimeoutMs = 6000;
         private int maxRetries = 2;
         private int retryBackoffMs = 250;
@@ -433,6 +436,30 @@ public class RagProperties {
 
         public void setDiagramUrl(String diagramUrl) {
             this.diagramUrl = diagramUrl;
+        }
+
+        public boolean isEnableKrokiRelay() {
+            return enableKrokiRelay;
+        }
+
+        public void setEnableKrokiRelay(boolean enableKrokiRelay) {
+            this.enableKrokiRelay = enableKrokiRelay;
+        }
+
+        public String getKrokiBaseUrl() {
+            return krokiBaseUrl;
+        }
+
+        public void setKrokiBaseUrl(String krokiBaseUrl) {
+            this.krokiBaseUrl = krokiBaseUrl;
+        }
+
+        public int getKrokiTimeoutMs() {
+            return krokiTimeoutMs;
+        }
+
+        public void setKrokiTimeoutMs(int krokiTimeoutMs) {
+            this.krokiTimeoutMs = krokiTimeoutMs;
         }
 
         public int getCallTimeoutMs() {

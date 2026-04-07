@@ -204,17 +204,63 @@ public class MockMcpToolClient implements McpToolClient {
             if (imageUrl.isBlank()) {
                 imageUrl = firstText(root.path("data"), "imageUrl", "diagramUrl", "url");
             }
+            if (imageUrl.isBlank()) {
+                imageUrl = firstTextFromMap(arguments, "imageUrl", "diagramUrl", "url");
+            }
+
+            String fallbackImageUrl = buildSvgMindMapDataUrl(question, answer, sourceType, evidence);
+            String mermaidSource = extractMermaidSource(root, arguments, question, answer, sourceType, evidence);
             boolean fallback = false;
-            if (!imageUrl.isBlank()) {
+            String fallbackReason = null;
+
+            if (imageUrl.isBlank()) {
+                String relayed = relayMermaidToDataUrl(mermaidSource);
+                if (!relayed.isBlank()) {
+                    arguments.put("imageUrl", relayed);
+                    arguments.put("krokiRelayed", true);
+                } else {
+                    arguments.put("imageUrl", fallbackImageUrl);
+                    fallback = true;
+                    fallbackReason = "diagram-response-missing-image-url";
+                }
+            } else if (isLikelyUpstreamFallbackImage(imageUrl)) {
+                String relayed = relayMermaidToDataUrl(mermaidSource);
+                if (!relayed.isBlank()) {
+                    arguments.put("imageUrl", relayed);
+                    arguments.put("upstreamImageUrl", imageUrl);
+                    arguments.put("krokiRelayed", true);
+                } else {
+                    arguments.put("imageUrl", fallbackImageUrl);
+                    arguments.put("upstreamImageUrl", imageUrl);
+                    fallback = true;
+                    fallbackReason = "diagram-upstream-fallback-image";
+                }
+            } else if (!isBrowserRenderableImageUrl(imageUrl)) {
+                String relayed = relayKrokiUrlToDataUrl(imageUrl);
+                if (!relayed.isBlank()) {
+                    arguments.put("imageUrl", relayed);
+                    arguments.put("upstreamImageUrl", imageUrl);
+                    arguments.put("krokiRelayed", true);
+                } else {
+                    arguments.put("imageUrl", fallbackImageUrl);
+                    arguments.put("upstreamImageUrl", imageUrl);
+                    fallback = true;
+                    fallbackReason = "diagram-url-not-browser-reachable";
+                    log.warn(
+                            "MCP diagram returned non-browser-reachable imageUrl, fallback to local svg. endpoint={}, imageUrl={}",
+                            callResult.endpoint(), imageUrl);
+                }
+            } else {
                 arguments.put("imageUrl", imageUrl);
+                if (!imageUrl.startsWith("data:image/")) {
+                    // 给前端一个稳定的回退图源，避免远端图片地址偶发不可达时彻底不显示。
+                    arguments.put("backupImageUrl", fallbackImageUrl);
+                }
             }
-            if (!arguments.containsKey("imageUrl")) {
-                arguments.put("imageUrl", buildSvgMindMapDataUrl(question, answer, sourceType, evidence));
-                fallback = true;
-            }
+
             arguments.put("mcpFallback", fallback);
-            if (fallback) {
-                arguments.put("mcpFallbackReason", "diagram-response-missing-image-url");
+            if (fallbackReason != null) {
+                arguments.put("mcpFallbackReason", fallbackReason);
             }
             arguments.put("mcpEndpoint", callResult.endpoint());
             log.info("MCP diagram succeeded via endpoint={}, hasImageUrl={}", callResult.endpoint(),
@@ -224,6 +270,187 @@ public class MockMcpToolClient implements McpToolClient {
             log.warn("MCP diagram call failed, fallback to mock: {}", ex.getMessage());
             return null;
         }
+    }
+
+    private String relayKrokiUrlToDataUrl(String imageUrl) {
+        if (!ragProperties.getMcp().isEnableKrokiRelay() || imageUrl == null || imageUrl.isBlank()) {
+            return "";
+        }
+
+        try {
+            String relayUrl = mapKrokiUrlToRelayBase(imageUrl);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(relayUrl))
+                    .timeout(Duration.ofMillis(Math.max(1000, ragProperties.getMcp().getKrokiTimeoutMs())))
+                    .header("Accept", "image/svg+xml,text/plain;q=0.9,*/*;q=0.8")
+                    .GET()
+                    .build();
+
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || response.body() == null
+                    || response.body().length == 0) {
+                return "";
+            }
+            return toSvgDataUrl(response.body(), response.headers().firstValue("Content-Type").orElse(""));
+        } catch (Exception ex) {
+            log.warn("Kroki relay by URL failed: {}", ex.getMessage());
+            return "";
+        }
+    }
+
+    private String relayMermaidToDataUrl(String mermaidSource) {
+        if (!ragProperties.getMcp().isEnableKrokiRelay() || mermaidSource == null || mermaidSource.isBlank()) {
+            return "";
+        }
+
+        try {
+            String krokiBaseUrl = ragProperties.getMcp().getKrokiBaseUrl();
+            if (krokiBaseUrl == null || krokiBaseUrl.isBlank()) {
+                return "";
+            }
+
+            String endpoint = krokiBaseUrl.endsWith("/")
+                    ? krokiBaseUrl + "mermaid/svg"
+                    : krokiBaseUrl + "/mermaid/svg";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
+                    .timeout(Duration.ofMillis(Math.max(1000, ragProperties.getMcp().getKrokiTimeoutMs())))
+                    .header("Content-Type", "text/plain; charset=utf-8")
+                    .header("Accept", "image/svg+xml,text/plain;q=0.9,*/*;q=0.8")
+                    .POST(HttpRequest.BodyPublishers.ofString(mermaidSource, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || response.body() == null
+                    || response.body().length == 0) {
+                return "";
+            }
+            return toSvgDataUrl(response.body(), response.headers().firstValue("Content-Type").orElse(""));
+        } catch (Exception ex) {
+            log.warn("Kroki relay by Mermaid failed: {}", ex.getMessage());
+            return "";
+        }
+    }
+
+    private String mapKrokiUrlToRelayBase(String imageUrl) {
+        URI original = URI.create(imageUrl);
+        String host = original.getHost();
+        if (host != null && !host.isBlank() && !"kroki".equalsIgnoreCase(host)) {
+            return imageUrl;
+        }
+
+        String base = ragProperties.getMcp().getKrokiBaseUrl();
+        if (base == null || base.isBlank()) {
+            return imageUrl;
+        }
+        URI baseUri = URI.create(base);
+        String path = original.getRawPath() == null ? "" : original.getRawPath();
+        String query = original.getRawQuery();
+        String mapped = baseUri.getScheme() + "://" + baseUri.getAuthority() + path;
+        if (query != null && !query.isBlank()) {
+            mapped += "?" + query;
+        }
+        return mapped;
+    }
+
+    private String toSvgDataUrl(byte[] payload, String contentType) {
+        if (payload == null || payload.length == 0) {
+            return "";
+        }
+
+        String bodyText = new String(payload, StandardCharsets.UTF_8).trim();
+        if (!bodyText.startsWith("<svg") && !bodyText.contains("<svg")) {
+            return "";
+        }
+
+        String mediaType = (contentType == null || contentType.isBlank()) ? "image/svg+xml" : contentType;
+        int semicolon = mediaType.indexOf(';');
+        if (semicolon > 0) {
+            mediaType = mediaType.substring(0, semicolon);
+        }
+        if (!mediaType.startsWith("image/")) {
+            mediaType = "image/svg+xml";
+        }
+        return "data:" + mediaType + ";base64," + Base64.getEncoder().encodeToString(payload);
+    }
+
+    private boolean isLikelyUpstreamFallbackImage(String imageUrl) {
+        if (imageUrl == null || !imageUrl.startsWith("data:image/svg+xml;base64,")) {
+            return false;
+        }
+
+        try {
+            String base64 = imageUrl.substring("data:image/svg+xml;base64,".length());
+            String decoded = new String(Base64.getDecoder().decode(base64), StandardCharsets.UTF_8)
+                    .toLowerCase(Locale.ROOT);
+            return decoded.contains("diagram fallback");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private String extractMermaidSource(
+            JsonNode root,
+            Map<String, Object> arguments,
+            String question,
+            String answer,
+            DataSourceType sourceType,
+            List<RetrievalChunk> evidence) {
+        String mermaid = firstText(root, "mermaid", "mermaidText", "diagramMermaid", "diagramSource");
+        if (mermaid.isBlank()) {
+            mermaid = firstText(root.path("data"), "mermaid", "mermaidText", "diagramMermaid", "diagramSource");
+        }
+        if (mermaid.isBlank()) {
+            mermaid = firstTextFromMap(arguments, "mermaid", "mermaidText", "diagramMermaid", "diagramSource");
+        }
+        if (!mermaid.isBlank()) {
+            return mermaid;
+        }
+
+        return buildMermaidMindMap(question, answer, sourceType, evidence);
+    }
+
+    private String buildMermaidMindMap(
+            String question,
+            String answer,
+            DataSourceType sourceType,
+            List<RetrievalChunk> evidence) {
+        List<MindBranch> branches = buildMindMapBranches(answer, evidence);
+        String root = sanitizeMermaidText(limit(question, 24));
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("mindmap\n");
+        builder.append("  root((").append(root).append("))\n");
+        builder.append("    ").append(sanitizeMermaidText(sourceType == null ? "UNKNOWN" : sourceType.name()))
+                .append("\n");
+
+        for (MindBranch branch : branches) {
+            String title = sanitizeMermaidText(limit(branch.title(), 16));
+            String leftLeaf = sanitizeMermaidText(limit(branch.leftLeaf(), 20));
+            String rightLeaf = sanitizeMermaidText(limit(branch.rightLeaf(), 20));
+            builder.append("    ").append(title).append("\n");
+            builder.append("      ").append(leftLeaf).append("\n");
+            builder.append("      ").append(rightLeaf).append("\n");
+        }
+        return builder.toString();
+    }
+
+    private String sanitizeMermaidText(String text) {
+        if (text == null || text.isBlank()) {
+            return "-";
+        }
+        String normalized = text.replace('\n', ' ')
+                .replace('\r', ' ')
+                .replace('(', ' ')
+                .replace(')', ' ')
+                .replace('[', ' ')
+                .replace(']', ' ')
+                .replace('{', ' ')
+                .replace('}', ' ')
+                .replace('"', ' ')
+                .replace("`", " ")
+                .trim();
+        return normalized.isBlank() ? "-" : normalized;
     }
 
     /**
@@ -315,6 +542,35 @@ public class MockMcpToolClient implements McpToolClient {
             return Integer.parseInt(message.substring(start, end));
         } catch (Exception ignored) {
             return -1;
+        }
+    }
+
+    /**
+     * 判断图片 URL 是否可被浏览器直接渲染。
+     */
+    private boolean isBrowserRenderableImageUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return false;
+        }
+
+        String normalized = imageUrl.trim();
+        if (normalized.startsWith("data:image/")) {
+            return true;
+        }
+        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(normalized);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return false;
+            }
+            // kroki 通常是容器内服务名，浏览器端不可直连。
+            return !"kroki".equalsIgnoreCase(host);
+        } catch (Exception ex) {
+            return false;
         }
     }
 
@@ -429,6 +685,19 @@ public class MockMcpToolClient implements McpToolClient {
             String value = node.path(field).asText("").trim();
             if (!value.isBlank()) {
                 return value;
+            }
+        }
+        return "";
+    }
+
+    private String firstTextFromMap(Map<String, Object> map, String... fields) {
+        if (map == null || map.isEmpty()) {
+            return "";
+        }
+        for (String field : fields) {
+            Object value = map.get(field);
+            if (value instanceof String text && !text.isBlank()) {
+                return text.trim();
             }
         }
         return "";

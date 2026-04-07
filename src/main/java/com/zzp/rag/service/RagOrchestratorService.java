@@ -219,9 +219,6 @@ public class RagOrchestratorService {
 
             RagEvaluation evaluation = ragEvaluationService.evaluate(sourceType, evidence, answerText);
             boolean uncertain = "HIGH".equalsIgnoreCase(evaluation.hallucinationRisk()) || evidence.isEmpty();
-            if (uncertain) {
-                answerText = answerText + "\n不确定性声明：当前证据不足，结论仅供参考。\n";
-            }
 
             MindMapCommand mindMapCommand = null;
             if (enableMindMap) {

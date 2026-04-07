@@ -26,7 +26,9 @@ class AnswerGenerationServiceTest {
 
         Assertions.assertFalse(outcome.llmUsed());
         Assertions.assertEquals("LLM_NOT_CONFIGURED", outcome.fallbackReason());
-        Assertions.assertTrue(outcome.answer().contains("知识库"));
+        Assertions.assertFalse(outcome.answer().contains("知识库"));
+        Assertions.assertFalse(outcome.answer().contains("检索"));
+        Assertions.assertFalse(outcome.answer().contains("证据"));
     }
 
     @Test
@@ -50,6 +52,6 @@ class AnswerGenerationServiceTest {
 
         Assertions.assertFalse(outcome.llmUsed());
         Assertions.assertFalse(outcome.answer().contains(uuid));
-        Assertions.assertTrue(outcome.answer().contains("知识库片段"));
+        Assertions.assertTrue(outcome.answer().contains("参考资料"));
     }
 }

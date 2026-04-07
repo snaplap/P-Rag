@@ -111,13 +111,8 @@ public class AnswerGenerationService {
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
         if (evidence == null || evidence.isEmpty()) {
-            if (sourceType == DataSourceType.KNOWLEDGE_BASE) {
-                return "我暂时还没在当前知识库里找到可以直接支撑这个问题的证据。"
-                        + "你可以补充更相关的文档，或把问题细化到时间、对象、范围后再问我。";
-            } else {
-                return "我基于当前可用资料只能给出有限判断，暂时还不能形成可靠结论。"
-                        + "你可以缩小问题范围，或补充希望重点比较的维度。";
-            }
+            return "这个问题目前信息不足，暂时无法给出准确结论。"
+                    + "请补充时间、对象或关键背景后再试。";
         }
 
         StringBuilder builder = new StringBuilder();
@@ -141,11 +136,6 @@ public class AnswerGenerationService {
                     .append("\n");
         }
 
-        if (sourceType == DataSourceType.WEB) {
-            builder.append("\n以上结论主要来自联网检索结果，建议结合你掌握的一手材料再确认。\n");
-        } else if (sourceType == DataSourceType.HYBRID) {
-            builder.append("\n以上结论综合了知识库与联网结果，若你希望我只依据知识库回答，可以继续说明。\n");
-        }
         return builder.toString().trim();
     }
 
@@ -155,12 +145,12 @@ public class AnswerGenerationService {
     private String composeEvidenceSummary(String question, List<RetrievalChunk> evidence) {
         List<String> keyPoints = extractKeyPoints(evidence, 3);
         if (keyPoints.isEmpty()) {
-            return "我基于当前检索到的片段暂时只能给出有限结论：现有证据不足以覆盖你问题中的全部细节。";
+            return "目前可用信息不足，暂时无法覆盖你问题中的全部细节。";
         }
 
         if (isProceduralQuestion(question) && keyPoints.size() >= 2) {
             StringBuilder builder = new StringBuilder();
-            builder.append("基于当前证据，你可以先按这个顺序处理：\n");
+            builder.append("可以先按这个顺序处理：\n");
             for (int i = 0; i < keyPoints.size(); i++) {
                 builder.append(i + 1)
                         .append(". ")
@@ -171,10 +161,10 @@ public class AnswerGenerationService {
         }
 
         if (keyPoints.size() == 1) {
-            return "根据当前证据，" + ensureSentenceEnding(keyPoints.get(0));
+            return "目前可以确认，" + ensureSentenceEnding(keyPoints.get(0));
         }
 
-        return "根据当前检索到的内容，核心信息是："
+        return "核心信息是："
                 + String.join("；", keyPoints)
                 + "。";
     }
@@ -221,14 +211,12 @@ public class AnswerGenerationService {
      */
     private String readableSource(RetrievalChunk chunk, int index) {
         if (chunk == null) {
-            return "来源" + index;
+            return "参考资料" + index;
         }
 
         String raw = firstNonBlank(chunk.documentId(), chunk.id());
         if (raw == null || raw.isBlank()) {
-            return chunk.sourceType() == DataSourceType.WEB
-                    ? "联网资料" + index
-                    : "知识库片段" + index;
+            return "参考资料" + index;
         }
 
         String normalized = raw.replace("\n", " ").trim();
@@ -236,9 +224,7 @@ public class AnswerGenerationService {
             return normalizeUrlSource(normalized);
         }
         if (looksLikeInternalId(normalized)) {
-            return chunk.sourceType() == DataSourceType.WEB
-                    ? "联网资料" + index
-                    : "知识库片段" + index;
+            return "参考资料" + index;
         }
         return trimSnippet(normalized, 48);
     }
