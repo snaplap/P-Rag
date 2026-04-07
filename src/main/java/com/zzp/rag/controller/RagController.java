@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
 @RequestMapping("/api/rag")
@@ -74,17 +75,35 @@ public class RagController {
     @PostMapping(value = "/query/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter queryStream(@Valid @RequestBody QueryRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
+        boolean mindMapEnabled = request.getEnableMindMap() == null || Boolean.TRUE.equals(request.getEnableMindMap());
 
         CompletableFuture.runAsync(() -> {
             try {
-                RagAnswer answer = ragOrchestratorService.answer(request);
-                // 先发送文本增量分片，前端可边接收边渲染。
-                for (String chunk : chunk(answer.answer(), ragProperties.getStream().getChunkSize())) {
+                AtomicBoolean streamed = new AtomicBoolean(false);
+                RagAnswer answer = ragOrchestratorService.answer(request, chunk -> {
+                    if (chunk == null || chunk.isBlank()) {
+                        return;
+                    }
                     Map<String, Object> payload = new LinkedHashMap<>();
                     payload.put("type", "text");
                     payload.put("content", chunk);
-                    payload.put("source", sourceLabel(answer.dataSource()));
-                    emitter.send(SseEmitter.event().name("chunk").data(payload));
+                    try {
+                        emitter.send(SseEmitter.event().name("chunk").data(payload));
+                        streamed.set(true);
+                    } catch (IOException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                });
+
+                // 若后端本次未产生 token 级流（例如同步回退），再做一次兼容分片兜底。
+                if (!streamed.get()) {
+                    for (String chunk : chunk(answer.answer(), ragProperties.getStream().getChunkSize())) {
+                        Map<String, Object> payload = new LinkedHashMap<>();
+                        payload.put("type", "text");
+                        payload.put("content", chunk);
+                        payload.put("source", sourceLabel(answer.dataSource()));
+                        emitter.send(SseEmitter.event().name("chunk").data(payload));
+                    }
                 }
 
                 Map<String, Object> finalPayload = new LinkedHashMap<>();
@@ -96,6 +115,7 @@ public class RagController {
                 finalPayload.put("references", answer.references());
                 finalPayload.put("evaluation", answer.evaluation());
                 finalPayload.put("mindMapCommand", answer.mindMapCommand());
+                finalPayload.put("mindMapEnabled", mindMapEnabled);
                 finalPayload.put("logMetrics", buildLogMetricsPayload(request, answer));
                 // 最终事件包含来源、评估和思维导图调用指令，便于前端一次性收尾展示。
                 emitter.send(SseEmitter.event().name("final").data(finalPayload));

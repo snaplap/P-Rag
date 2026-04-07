@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: p-rag
+  ai:
+    openai:
+      api-key: ${LLM_API_KEY:${DASHSCOPE_API_KEY:}}
+      # Spring AI 会自动拼接 /v1/chat/completions，这里使用不带 /v1 的根地址。
+      base-url: ${SPRING_AI_OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+      chat:
+        options:
+          model: ${LLM_MODEL:qwen-plus}
+          temperature: 0.2
   config:
     # 启动时自动加载 .env 与 secrets，避免本地运行时丢失 API Key。
     import: optional:file:.env[.properties],optional:file:./P-Rag/.env[.properties],optional:file:./config/application-secrets.yml

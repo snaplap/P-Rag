@@ -846,7 +846,7 @@
   let traces = [];
   let active = null;
   let currentHistory = [];
-  let enableMindMap = false;
+  let enableMindMap = true;
   let logMetricsByKnowledgeBase = {};
 
   initialize();
@@ -854,6 +854,7 @@
   async function initialize() {
     initSidebarState();
     bindEvents();
+    applyMindMapUiState();
     await loadKnowledgeBases();
     if (!active) {
       appendMessage("assistant", "欢迎使用。先上传一个 Markdown 文件，我会为它创建独立知识库并开启新对话。");
@@ -1135,6 +1136,9 @@
               minorHint.textContent = "导图指令已返回，但未提供可渲染图片地址";
               minorHint.className = "warn";
             }
+          } else if (payload.mindMapEnabled) {
+            minorHint.textContent = "导图生成失败，请检查 MCP 服务";
+            minorHint.className = "error";
           }
           if (payload.logMetrics && active && active.knowledgeBaseId) {
             logMetricsByKnowledgeBase[active.knowledgeBaseId] = payload.logMetrics;
@@ -1478,9 +1482,13 @@
 
   function toggleMindMap() {
     enableMindMap = !enableMindMap;
+    applyMindMapUiState();
+    renderLogMetricsPanel();
+  }
+
+  function applyMindMapUiState() {
     mindMapBtn.classList.toggle("active", enableMindMap);
     resetMinorHint();
-    renderLogMetricsPanel();
   }
 
   function resetMinorHint() {

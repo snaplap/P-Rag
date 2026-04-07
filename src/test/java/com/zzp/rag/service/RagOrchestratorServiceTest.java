@@ -129,7 +129,7 @@ class RagOrchestratorServiceTest {
                                 List.of(new WebSearchResult("WebDoc", "https://example.com/doc", "联网证据", 0.83d)));
 
                 when(rerankService.rerank(anyString(), anyList())).thenReturn(List.of(webAsChunk, kb2, kb1));
-                when(answerGenerationService.generateAnswerWithDiagnostics(anyString(), anyList(), anyList(), any()))
+                when(answerGenerationService.generateAnswerWithDiagnostics(anyString(), anyList(), anyList(), any(), any()))
                                 .thenReturn(new AnswerGenerationService.GenerationOutcome("综合回答", true, null));
                 when(ragEvaluationService.evaluate(any(), anyList(), anyString()))
                                 .thenReturn(new RagEvaluation(true, "LOW", 0.9d, "ok"));

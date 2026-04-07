@@ -36,6 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 @Service
 public class RagOrchestratorService {
@@ -97,11 +98,15 @@ public class RagOrchestratorService {
      * 任一阶段的策略变化都会影响最终回答质量与成本，调整时需配套回归测试。
      */
     public RagAnswer answer(QueryRequest request) {
+        return answer(request, null);
+    }
+
+    public RagAnswer answer(QueryRequest request, Consumer<String> streamConsumer) {
         RuntimeMetricsService.RequestTracker tracker = runtimeMetricsService.startRequest();
         String question = request.getQuestion().trim();
         String sessionId = normalizeSessionId(request.getSessionId());
         String knowledgeBaseId = normalizeKnowledgeBaseId(request.getKnowledgeBaseId());
-        boolean enableMindMap = Boolean.TRUE.equals(request.getEnableMindMap());
+        boolean enableMindMap = request.getEnableMindMap() == null || Boolean.TRUE.equals(request.getEnableMindMap());
         int topK = request.getTopK() == null
                 ? ragProperties.getRetrieval().getDefaultTopK()
                 : Math.max(1, request.getTopK());
@@ -159,6 +164,7 @@ public class RagOrchestratorService {
                             cached.evaluation(),
                             logMetrics,
                             mindMapCommand);
+                    streamTextChunks(answer.answer(), streamConsumer);
                     qaAuditService.safeInsert(sessionId, question, answer.dataSource(), answer.uncertain(), true);
                     return answer;
                 }
@@ -207,7 +213,7 @@ public class RagOrchestratorService {
 
             long generationStart = System.nanoTime();
             AnswerGenerationService.GenerationOutcome generationOutcome = answerGenerationService
-                    .generateAnswerWithDiagnostics(question, history, evidence, sourceType);
+                    .generateAnswerWithDiagnostics(question, history, evidence, sourceType, streamConsumer);
             String answerText = generationOutcome.answer();
             long generationMs = Math.max(0L, (System.nanoTime() - generationStart) / 1_000_000L);
 
@@ -269,6 +275,20 @@ public class RagOrchestratorService {
         } catch (RuntimeException ex) {
             runtimeMetricsService.markError();
             throw ex;
+        }
+    }
+
+    private void streamTextChunks(String text, Consumer<String> streamConsumer) {
+        if (streamConsumer == null || text == null || text.isBlank()) {
+            return;
+        }
+
+        int chunkSize = Math.max(8, ragProperties.getStream().getChunkSize());
+        int start = 0;
+        while (start < text.length()) {
+            int end = Math.min(start + chunkSize, text.length());
+            streamConsumer.accept(text.substring(start, end));
+            start = end;
         }
     }
 

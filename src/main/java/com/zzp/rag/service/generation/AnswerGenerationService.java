@@ -8,6 +8,8 @@ import com.zzp.rag.domain.model.DataSourceType;
 import com.zzp.rag.domain.model.RetrievalChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 @Service
@@ -35,10 +38,18 @@ public class AnswerGenerationService {
 
     private final RagProperties ragProperties;
     private final ObjectMapper objectMapper;
+    private ChatClient chatClient;
 
     public AnswerGenerationService(RagProperties ragProperties, ObjectMapper objectMapper) {
         this.ragProperties = ragProperties;
         this.objectMapper = objectMapper;
+    }
+
+    @Autowired(required = false)
+    public void setChatClientBuilder(ChatClient.Builder chatClientBuilder) {
+        if (chatClientBuilder != null) {
+            this.chatClient = chatClientBuilder.build();
+        }
     }
 
     /**
@@ -60,9 +71,21 @@ public class AnswerGenerationService {
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
             DataSourceType sourceType) {
+        return generateAnswerWithDiagnostics(question, history, evidence, sourceType, null);
+    }
+
+    /**
+     * 带诊断的生成入口，支持 token 级流式回调。
+     */
+    public GenerationOutcome generateAnswerWithDiagnostics(
+            String question,
+            List<ConversationTurn> history,
+            List<RetrievalChunk> evidence,
+            DataSourceType sourceType,
+            Consumer<String> streamConsumer) {
         String fallback = fallbackAnswer(question, history, evidence, sourceType);
 
-        LlmCallResult llmResult = askLlmIfConfigured(question, history, evidence, sourceType);
+        LlmCallResult llmResult = askLlmIfConfigured(question, history, evidence, sourceType, streamConsumer);
         String llmAnswer = llmResult.answer();
         if (llmAnswer != null && !llmAnswer.isBlank() && !isLowValueAnswer(llmAnswer)) {
             return new GenerationOutcome(llmAnswer.trim(), true, null);
@@ -306,61 +329,135 @@ public class AnswerGenerationService {
             String question,
             List<ConversationTurn> history,
             List<RetrievalChunk> evidence,
-            DataSourceType sourceType) {
+            DataSourceType sourceType,
+            Consumer<String> streamConsumer) {
         RagProperties.Llm llm = ragProperties.getLlm();
-        if (isBlank(llm.getApiKey()) || isBlank(llm.getBaseUrl()) || isBlank(llm.getModel())) {
+        if (chatClient == null && (isBlank(llm.getApiKey()) || isBlank(llm.getBaseUrl()) || isBlank(llm.getModel()))) {
             return new LlmCallResult(null, "LLM_NOT_CONFIGURED");
         }
 
         try {
-            String endpoint = llm.getBaseUrl().endsWith("/")
-                    ? llm.getBaseUrl() + "chat/completions"
-                    : llm.getBaseUrl() + "/chat/completions";
-
             String evidenceText = buildEvidenceText(evidence);
             String historyText = buildHistoryText(history);
+            String systemPrompt = buildSystemPrompt(sourceType);
+            String userPrompt = buildUserPrompt(question, evidenceText, historyText);
 
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("model", llm.getModel());
-            payload.put("temperature", 0.2);
-            payload.put("stream", false);
-            payload.put("messages", buildMessages(question, evidenceText, historyText, sourceType));
-
-            String body = objectMapper.writeValueAsString(payload);
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(Math.max(1000, llm.getConnectTimeoutMs())))
-                    .build();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(Duration.ofMillis(Math.max(3000, llm.getReadTimeoutMs())))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + llm.getApiKey().trim())
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("LLM response status not success: {}", response.statusCode());
-                return new LlmCallResult(null, "LLM_HTTP_" + response.statusCode());
+            if (chatClient != null) {
+                return askLlmViaSpringAi(systemPrompt, userPrompt, streamConsumer);
             }
 
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty()) {
-                return new LlmCallResult(null, "LLM_EMPTY_CHOICES");
+            if (isBlank(llm.getApiKey()) || isBlank(llm.getBaseUrl()) || isBlank(llm.getModel())) {
+                return new LlmCallResult(null, "LLM_NOT_CONFIGURED");
             }
 
-            JsonNode contentNode = choices.get(0).path("message").path("content");
-            if (contentNode.isMissingNode() || contentNode.isNull()) {
-                return new LlmCallResult(null, "LLM_EMPTY_CONTENT");
-            }
-            String content = contentNode.asText();
-            return new LlmCallResult(content == null ? null : content.trim(), null);
+            return askLlmViaHttp(llm, question, evidenceText, historyText, sourceType);
         } catch (Exception ex) {
             log.warn("Call LLM failed, fallback template answer: {}", ex.getMessage());
             return new LlmCallResult(null, "LLM_EXCEPTION");
         }
+    }
+
+    private LlmCallResult askLlmViaSpringAi(String systemPrompt, String userPrompt, Consumer<String> streamConsumer) {
+        try {
+            List<String> tokens = chatClient.prompt()
+                    .system(systemPrompt)
+                    .user(userPrompt)
+                    .stream()
+                    .content()
+                    .doOnNext(token -> {
+                        if (streamConsumer != null && token != null && !token.isBlank()) {
+                            streamConsumer.accept(token);
+                        }
+                    })
+                    .collectList()
+                    .block();
+
+            if (tokens == null || tokens.isEmpty()) {
+                return new LlmCallResult(null, "LLM_EMPTY_CONTENT");
+            }
+
+            String content = String.join("", tokens).trim();
+            if (content.isBlank()) {
+                return new LlmCallResult(null, "LLM_EMPTY_CONTENT");
+            }
+            return new LlmCallResult(content, null);
+        } catch (Exception ex) {
+            log.warn("Spring AI streaming call failed, fallback to HTTP: {}", ex.getMessage());
+            return new LlmCallResult(null, "LLM_SPRING_AI_EXCEPTION");
+        }
+    }
+
+    private LlmCallResult askLlmViaHttp(
+            RagProperties.Llm llm,
+            String question,
+            String evidenceText,
+            String historyText,
+            DataSourceType sourceType) throws Exception {
+        String endpoint = llm.getBaseUrl().endsWith("/")
+                ? llm.getBaseUrl() + "chat/completions"
+                : llm.getBaseUrl() + "/chat/completions";
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", llm.getModel());
+        payload.put("temperature", 0.2);
+        payload.put("stream", false);
+        payload.put("messages", buildMessages(question, evidenceText, historyText, sourceType));
+
+        String body = objectMapper.writeValueAsString(payload);
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(Math.max(1000, llm.getConnectTimeoutMs())))
+                .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(Duration.ofMillis(Math.max(3000, llm.getReadTimeoutMs())))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + llm.getApiKey().trim())
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log.warn("LLM response status not success: {}", response.statusCode());
+            return new LlmCallResult(null, "LLM_HTTP_" + response.statusCode());
+        }
+
+        JsonNode root = objectMapper.readTree(response.body());
+        JsonNode choices = root.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            return new LlmCallResult(null, "LLM_EMPTY_CHOICES");
+        }
+
+        JsonNode contentNode = choices.get(0).path("message").path("content");
+        if (contentNode.isMissingNode() || contentNode.isNull()) {
+            return new LlmCallResult(null, "LLM_EMPTY_CONTENT");
+        }
+        String content = contentNode.asText();
+        return new LlmCallResult(content == null ? null : content.trim(), null);
+    }
+
+    private String buildSystemPrompt(DataSourceType sourceType) {
+        StringBuilder systemPrompt = new StringBuilder();
+        systemPrompt.append("你是企业级知识库问答助手。请只根据提供的证据作答。")
+                .append("如果证据不足，明确说不确定，不要编造。")
+                .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
+                .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
+                .append("回答默认使用2-4句自然段，仅当用户明确要求步骤时再使用列表。")
+                .append("来源引用使用可读名称，不要输出内部ID。")
+                .append("来源类型=")
+                .append(labelSource(sourceType));
+        return systemPrompt.toString();
+    }
+
+    private String buildUserPrompt(String question, String evidenceText, String historyText) {
+        StringBuilder userPrompt = new StringBuilder();
+        if (!historyText.isBlank()) {
+            userPrompt.append("历史对话摘要:\n").append(historyText).append("\n\n");
+        }
+        userPrompt.append("问题:\n").append(question)
+                .append("\n\n证据:\n").append(evidenceText)
+                .append("\n\n请输出简洁、直接、用户可读的回答。若证据不足，请明确缺少哪些关键证据。");
+        return userPrompt.toString();
     }
 
     /**
@@ -372,26 +469,8 @@ public class AnswerGenerationService {
             String historyText,
             DataSourceType sourceType) {
         List<Map<String, String>> messages = new ArrayList<>();
-
-        StringBuilder systemPrompt = new StringBuilder();
-        systemPrompt.append("你是企业级知识库问答助手。请只根据提供的证据作答。")
-                .append("如果证据不足，明确说不确定，不要编造。")
-                .append("不要输出‘没有提供任何实质性的文章信息或摘要’这类模板化拒答句。")
-                .append("回答要面向最终用户，避免输出检索分数、缓存状态、内部工具细节。")
-                .append("回答默认使用2-4句自然段，仅当用户明确要求步骤时再使用列表。")
-                .append("来源引用使用可读名称，不要输出内部ID。")
-                .append("来源类型=")
-                .append(labelSource(sourceType));
-
-        messages.add(Map.of("role", "system", "content", systemPrompt.toString()));
-
-        if (!historyText.isBlank()) {
-            messages.add(Map.of("role", "user", "content", "历史对话摘要:\n" + historyText));
-        }
-
-        String userPrompt = "问题:\n" + question + "\n\n证据:\n" + evidenceText
-                + "\n\n请输出简洁、直接、用户可读的回答。若证据不足，请明确缺少哪些关键证据。";
-        messages.add(Map.of("role", "user", "content", userPrompt));
+        messages.add(Map.of("role", "system", "content", buildSystemPrompt(sourceType)));
+        messages.add(Map.of("role", "user", "content", buildUserPrompt(question, evidenceText, historyText)));
         return messages;
     }
 
